@@ -31,7 +31,6 @@ function init3DViewer(containerId) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  // Очистка контейнера перед добавлением
   container.innerHTML = "";
   container.appendChild(renderer.domElement);
 
@@ -59,13 +58,11 @@ function init3DViewer(containerId) {
   gridHelper.position.y = -0.01;
   scene.add(gridHelper);
 
-  // Группа для всех динамических элементов дома
   layoutGroup = new THREE.Group();
   scene.add(layoutGroup);
 
   activeCamera = camera;
 
-  // Обработка изменения размера окна
   window.addEventListener("resize", () => {
     const w = container.clientWidth || window.innerWidth - 340;
     const h = container.clientHeight || window.innerHeight;
@@ -74,7 +71,6 @@ function init3DViewer(containerId) {
     renderer.setSize(w, h);
   });
 
-  // Цикл анимации
   function animate() {
     requestAnimationFrame(animate);
     if (controls) controls.update();
@@ -82,20 +78,25 @@ function init3DViewer(containerId) {
   }
   animate();
 
-  // Отрисуем дефолтный прямоугольник при запуске
+  // Дефолтный запуск
   update3DLayout({
     dimensions: { width: 12, length: 14, height: 2.8 },
     shape: "rectangle",
     rooms: {
-      "Гостиная": { bounds: [0, 0, 7, 8], floor_type: "wood" },
-      "Спальня": { bounds: [7, 0, 12, 8], floor_type: "tile" },
-      "Кухня": { bounds: [0, 8, 6, 14], floor_type: "tile" },
-      "Санузел": { bounds: [6, 8, 12, 14], floor_type: "tile" }
+      "Прихожая": { bounds: [0, 0, 5, 6], floor_type: "tile" },
+      "Холл": { bounds: [5, 0, 9, 6], floor_type: "wood" },
+      "Спальня": { bounds: [9, 0, 12, 6], floor_type: "wood" },
+      "Зал": { bounds: [0, 6, 7, 14], floor_type: "wood" },
+      "Кухня": { bounds: [7, 6, 10, 10], floor_type: "tile" },
+      "Ванная": { bounds: [7, 10, 12, 14], floor_type: "tile" }
     }
   });
 }
 
+// -------------------------------------------------------------
 // Вспомогательные функции отрисовки
+// -------------------------------------------------------------
+
 function createWall(x, y, z, w, h, d, material) {
   const geo = new THREE.BoxGeometry(w, h, d);
   const mesh = new THREE.Mesh(geo, material);
@@ -106,13 +107,79 @@ function createWall(x, y, z, w, h, d, material) {
   return mesh;
 }
 
-function createDoor(x, y, z, w, h, rotationY) {
-  const doorGeo = new THREE.BoxGeometry(w, h, 0.08);
-  const doorMat = new THREE.MeshStandardMaterial({ color: 0x8e44ad });
-  const doorMesh = new THREE.Mesh(doorGeo, doorMat);
-  doorMesh.position.set(x, y + h / 2, z);
-  doorMesh.rotation.y = rotationY;
-  layoutGroup.add(doorMesh);
+// Детализированная 3D дверь с рамой и ручкой
+function createDoor(x, y, z, width = 0.9, height = 2.1, rotationY = 0) {
+  const doorGroup = new THREE.Group();
+
+  // Коробка двери (рама)
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.5 });
+  const frameGeo = new THREE.BoxGeometry(width + 0.08, height + 0.05, 0.16);
+  const frame = new THREE.Mesh(frameGeo, frameMat);
+  frame.position.set(0, height / 2, 0);
+  doorGroup.add(frame);
+
+  // Дверное полотно (контрастный цвет)
+  const panelMat = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.4 });
+  const panelGeo = new THREE.BoxGeometry(width * 0.92, height * 0.95, 0.06);
+  const panel = new THREE.Mesh(panelGeo, panelMat);
+  panel.position.set(0, height / 2, 0);
+  doorGroup.add(panel);
+
+  // Дверная ручка
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0xf1c40f, metalness: 0.8, roughness: 0.2 });
+  const handleGeo = new THREE.SphereGeometry(0.05, 16, 16);
+  const handle = new THREE.Mesh(handleGeo, handleMat);
+  handle.position.set(width / 2 - 0.12, height / 2, 0.05);
+  doorGroup.add(handle);
+
+  doorGroup.position.set(x, y, z);
+  doorGroup.rotation.y = rotationY;
+  layoutGroup.add(doorGroup);
+}
+
+// Отрисовка труб (водопровод и канализация)
+function createPipes(x, z, height) {
+  const pipeGroup = new THREE.Group();
+
+  // Холодная вода (синяя)
+  const coldMat = new THREE.MeshStandardMaterial({ color: 0x2980b9, metalness: 0.4 });
+  const coldGeo = new THREE.CylinderGeometry(0.03, 0.03, height, 16);
+  const coldPipe = new THREE.Mesh(coldGeo, coldMat);
+  coldPipe.position.set(x - 0.1, height / 2, z);
+  pipeGroup.add(coldPipe);
+
+  // Горячая вода (красная)
+  const hotMat = new THREE.MeshStandardMaterial({ color: 0xc0392b, metalness: 0.4 });
+  const hotGeo = new THREE.CylinderGeometry(0.03, 0.03, height, 16);
+  const hotPipe = new THREE.Mesh(hotGeo, hotMat);
+  hotPipe.position.set(x, height / 2, z);
+  pipeGroup.add(hotPipe);
+
+  // Канализационный стояк (серый)
+  const drainMat = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.5 });
+  const drainGeo = new THREE.CylinderGeometry(0.07, 0.07, height, 16);
+  const drainPipe = new THREE.Mesh(drainGeo, drainMat);
+  drainPipe.position.set(x + 0.12, height / 2, z);
+  pipeGroup.add(drainPipe);
+
+  layoutGroup.add(pipeGroup);
+}
+
+// Отрисовка линий кабели/электропроводка под потолком
+function createCableRoute(x1, z1, x2, z2, y = 2.5) {
+  const distance = Math.hypot(x2 - x1, z2 - z1);
+  if (distance === 0) return;
+  const angle = Math.atan2(z2 - z1, x2 - x1);
+
+  const cableMat = new THREE.MeshBasicMaterial({ color: 0xf39c12 });
+  const cableGeo = new THREE.CylinderGeometry(0.02, 0.02, distance, 8);
+  const cable = new THREE.Mesh(cableGeo, cableMat);
+
+  cable.position.set((x1 + x2) / 2, y, (z1 + z2) / 2);
+  cable.rotation.y = -angle + Math.PI / 2;
+  cable.rotation.z = Math.PI / 2;
+
+  layoutGroup.add(cable);
 }
 
 function createRoomLabel(name, area, x, z) {
@@ -163,8 +230,6 @@ function update3DLayout(layoutData) {
   if (!layoutData) layoutData = {};
   const dim = layoutData.dimensions || { width: 12, length: 14, height: 2.8 };
   const rooms = layoutData.rooms || {};
-  const furniture = layoutData.furniture || [];
-
   const rawShape = layoutData.shape || "rectangle";
   const shape = String(rawShape).toLowerCase().trim();
 
@@ -172,61 +237,67 @@ function update3DLayout(layoutData) {
   const intWallMat = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.6 });
   const wallHeight = dim.height || 2.8;
 
-  // 1. Отрисовка комнат
   const roomKeys = Object.keys(rooms);
-  if (roomKeys.length === 0) {
-    // Резервная отрисовка единого пола, если бэкенд не прислал комнаты
-    const floorGeo = new THREE.PlaneGeometry(dim.width, dim.length);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x34495e, side: THREE.DoubleSide });
+
+  roomKeys.forEach((rName) => {
+    const room = rooms[rName];
+    if (!room || !room.bounds) return;
+    const [x1, y1, x2, y2] = room.bounds;
+    const rw = x2 - x1;
+    const rl = y2 - y1;
+    const area = rw * rl;
+
+    // Пол комнаты
+    const floorGeo = new THREE.PlaneGeometry(rw, rl);
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: room.floor_type === "wood" ? 0xd2b48c : 0x95a5a6,
+      side: THREE.DoubleSide
+    });
+
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.set(dim.width / 2, 0.01, dim.length / 2);
+    floorMesh.position.set(x1 + rw / 2, 0.01, y1 + rl / 2);
+    floorMesh.receiveShadow = true;
     layoutGroup.add(floorMesh);
-  } else {
-    roomKeys.forEach((rName) => {
-      const room = rooms[rName];
-      if (!room || !room.bounds) return;
-      const [x1, y1, x2, y2] = room.bounds;
-      const rw = x2 - x1;
-      const rl = y2 - y1;
-      const area = rw * rl;
 
-      // Пол комнаты
-      const floorGeo = new THREE.PlaneGeometry(rw, rl);
-      const floorMat = new THREE.MeshStandardMaterial({
-        color: room.floor_type === "wood" ? 0xd2b48c : 0x95a5a6,
-        side: THREE.DoubleSide
+    // Внутренние перегородки
+    createWall(x1 + rw / 2, wallHeight / 2, y1, rw, wallHeight, 0.15, intWallMat);
+    createWall(x1 + rw / 2, wallHeight / 2, y2, rw, wallHeight, 0.15, intWallMat);
+    createWall(x1, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
+    createWall(x2, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
+
+    // Двери (если есть в объекте от бэкенда, либо авто-создание для каждой комнаты)
+    if (room.doors && Array.isArray(room.doors) && room.doors.length > 0) {
+      room.doors.forEach((door) => {
+        const dWidth = door.width || 0.9;
+        if (door.wall === "north") createDoor(x1 + rw * door.pos, 0, y1, dWidth, 2.1, 0);
+        else if (door.wall === "south") createDoor(x1 + rw * door.pos, 0, y2, dWidth, 2.1, 0);
+        else if (door.wall === "west") createDoor(x1, 0, y1 + rl * door.pos, dWidth, 2.1, Math.PI / 2);
+        else if (door.wall === "east") createDoor(x2, 0, y1 + rl * door.pos, dWidth, 2.1, Math.PI / 2);
       });
+    } else {
+      // Фолбэк: Автоматическая дверь в южной стене комнаты
+      createDoor(x1 + rw / 2, 0, y2, 0.9, 2.1, 0);
+    }
 
-      const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-      floorMesh.rotation.x = -Math.PI / 2;
-      floorMesh.position.set(x1 + rw / 2, 0.01, y1 + rl / 2);
-      floorMesh.receiveShadow = true;
-      layoutGroup.add(floorMesh);
+    // Отрисовка коммуникаций (трубы) в мокрых зонах (Кухня, Ванная, Санузел)
+    const lowerName = rName.toLowerCase();
+    if (lowerName.includes("ванн") || lowerName.includes("санузел") || lowerName.includes("кухн") || lowerName.includes("туалет")) {
+      createPipes(x1 + 0.4, y1 + 0.4, wallHeight);
+    }
 
-      // Перегородки
-      createWall(x1 + rw / 2, wallHeight / 2, y1, rw, wallHeight, 0.15, intWallMat);
-      createWall(x1 + rw / 2, wallHeight / 2, y2, rw, wallHeight, 0.15, intWallMat);
-      createWall(x1, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
-      createWall(x2, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
+    // Отрисовка трассы электропроводки по периметру каждой комнаты
+    createCableRoute(x1, y1, x2, y1, 2.5);
+    createCableRoute(x1, y1, x1, y2, 2.5);
 
-      // Двери
-      if (room.doors && Array.isArray(room.doors)) {
-        room.doors.forEach((door) => {
-          const dWidth = door.width || 0.8;
-          if (door.wall === "north") createDoor(x1 + rw * door.pos, 0, y1, dWidth, 2.1, 0);
-          else if (door.wall === "south") createDoor(x1 + rw * door.pos, 0, y2, dWidth, 2.1, 0);
-          else if (door.wall === "west") createDoor(x1, 0, y1 + rl * door.pos, dWidth, 2.1, Math.PI / 2);
-          else if (door.wall === "east") createDoor(x2, 0, y1 + rl * door.pos, dWidth, 2.1, Math.PI / 2);
-        });
-      }
+    // Табличка с названием комнаты
+    createRoomLabel(rName, area, x1 + rw / 2, y1 + rl / 2);
+  });
 
-      // Табличка
-      createRoomLabel(rName, area, x1 + rw / 2, y1 + rl / 2);
-    });
-  }
+  // Входная дверь в дом (на фасадной стене)
+  createDoor(dim.width / 2, 0, dim.length, 1.0, 2.2, 0);
 
-  // 2. Внешний контур стен
+  // Внешний контур стен
   const w = dim.width;
   const l = dim.length;
 
@@ -238,35 +309,13 @@ function update3DLayout(layoutData) {
     cylMesh.position.set(rx, wallHeight / 2, ry);
     if (shape === "ellipse" || shape === "эллипс") cylMesh.scale.set(1, 1, ry / rx);
     layoutGroup.add(cylMesh);
-  } else if (shape === "l_shape" || shape === "г-образный" || shape === "l-образный") {
-    const cutW = w * 0.4;
-    const cutL = l * 0.4;
-    createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
-    createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
-    createWall((w - cutW) / 2, wallHeight / 2, l - 0.19, w - cutW, wallHeight, 0.38, wallMat);
-    createWall(w - cutW, wallHeight / 2, l - cutL / 2, 0.38, wallHeight, cutL, wallMat);
-    createWall(w - cutW / 2, wallHeight / 2, l - cutL, cutW, wallHeight, 0.38, wallMat);
-    createWall(w - 0.19, wallHeight / 2, (l - cutL) / 2, 0.38, wallHeight, l - cutL, wallMat);
-  } else if (shape === "t_shape" || shape === "т-образный") {
-    const wingW = w * 0.3;
-    const wingL = l * 0.4;
-    createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
-    createWall(0.19, wallHeight / 2, wingL / 2, 0.38, wallHeight, wingL, wallMat);
-    createWall(w - 0.19, wallHeight / 2, wingL / 2, 0.38, wallHeight, wingL, wallMat);
-    createWall(wingW / 2, wallHeight / 2, wingL, wingW, wallHeight, 0.38, wallMat);
-    createWall(w - wingW / 2, wallHeight / 2, wingL, wingW, wallHeight, 0.38, wallMat);
-    createWall(wingW + 0.19, wallHeight / 2, wingL + (l - wingL) / 2, 0.38, wallHeight, l - wingL, wallMat);
-    createWall(w - wingW - 0.19, wallHeight / 2, wingL + (l - wingL) / 2, 0.38, wallHeight, l - wingL, wallMat);
-    createWall(w / 2, wallHeight / 2, l - 0.19, w - wingW * 2, wallHeight, 0.38, wallMat);
   } else {
-    // Прямоугольник по умолчанию
     createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
     createWall(w / 2, wallHeight / 2, l - 0.19, w, wallHeight, 0.38, wallMat);
     createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
     createWall(w - 0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
   }
 
-  // Центрируем камеру относительно дома
   if (controls) {
     controls.target.set(w / 2, 0, l / 2);
   }
