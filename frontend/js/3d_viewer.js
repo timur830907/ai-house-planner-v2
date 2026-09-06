@@ -1,47 +1,106 @@
-let scene, camera, renderer, controls;
+let scene, cameraPersp, cameraOrtho, activeCamera, renderer, controls;
 let layoutGroup;
+let is2DMode = false;
 
 function init3DViewer(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1a1a);
+  scene.background = new THREE.Color(0xf4f6f7);
 
-  camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-  camera.position.set(20, 25, 30);
+  const aspect = container.clientWidth / container.clientHeight;
+  
+  // 3D Перспективная камера
+  cameraPersp = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+  cameraPersp.position.set(18, 22, 26);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  // 2D Ортографическая камера
+  const d = 15;
+  cameraOrtho = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 0.1, 1000);
+  cameraOrtho.position.set(0, 50, 0);
+  cameraOrtho.lookAt(0, 0, 0);
+
+  activeCamera = cameraPersp;
+
+  // Рендерер с PBR и мягкими тенями
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+
   container.appendChild(renderer.domElement);
 
   if (typeof THREE.OrbitControls !== 'undefined') {
-    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls = new THREE.OrbitControls(cameraPersp, renderer.domElement);
     controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05; // Не уходить под пол
   }
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  dirLight.position.set(20, 40, 20);
-  scene.add(dirLight);
-
-  scene.add(new THREE.GridHelper(40, 40, 0x555555, 0x222222));
-
+  setupLighting();
+  
   layoutGroup = new THREE.Group();
   scene.add(layoutGroup);
 
   function animate() {
     requestAnimationFrame(animate);
-    if (controls) controls.update();
-    renderer.render(scene, camera);
+    if (controls && !is2DMode) controls.update();
+    renderer.render(scene, activeCamera);
   }
   animate();
 
   window.addEventListener('resize', () => {
-    camera.aspect = container.clientWidth / container.clientHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(container.clientWidth, container.clientHeight);
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    const asp = w / h;
+
+    cameraPersp.aspect = asp;
+    cameraPersp.updateProjectionMatrix();
+
+    cameraOrtho.left = -d * asp;
+    cameraOrtho.right = d * asp;
+    cameraOrtho.top = d;
+    cameraOrtho.bottom = -d;
+    cameraOrtho.updateProjectionMatrix();
+
+    renderer.setSize(w, h);
   });
+}
+
+function setupLighting() {
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambient);
+
+  const sun = new THREE.DirectionalLight(0xfff5e6, 1.2);
+  sun.position.set(20, 35, 15);
+  sun.castShadow = true;
+  sun.shadow.mapSize.width = 2048;
+  sun.shadow.mapSize.height = 2048;
+  sun.shadow.camera.near = 0.5;
+  sun.shadow.camera.far = 100;
+  
+  const shadowCamSize = 25;
+  sun.shadow.camera.left = -shadowCamSize;
+  sun.shadow.camera.right = shadowCamSize;
+  sun.shadow.camera.top = shadowCamSize;
+  sun.shadow.camera.bottom = -shadowCamSize;
+  sun.shadow.bias = -0.0005;
+
+  scene.add(sun);
+}
+
+function toggleViewMode(mode2D) {
+  is2DMode = mode2D;
+  if (is2DMode) {
+    activeCamera = cameraOrtho;
+    if (controls) controls.enabled = false;
+  } else {
+    activeCamera = cameraPersp;
+    if (controls) controls.enabled = true;
+  }
 }
 
 function update3DLayout(layoutData) {
@@ -51,72 +110,74 @@ function update3DLayout(layoutData) {
     layoutGroup.remove(layoutGroup.children[0]);
   }
 
-  const wallHeight = 2.8;
-  const wallThickness = 0.15;
-  const wallMat = new THREE.MeshLambertMaterial({ color: 0xbdc3c7 });
-
-  const roomColors = [0x3498db, 0xe74c3c, 0x2ecc71, 0xf1c40f, 0x9b59b6];
-  let colorIdx = 0;
-
+  const dim = layoutData.dimensions || { width: 10, length: 12, height: 2.8 };
   const rooms = layoutData.rooms || {};
+  const furniture = layoutData.furniture || [];
 
-  // Отрисовка комнат и стен
-  Object.keys(rooms).forEach((roomName) => {
-    const room = rooms[roomName];
-    if (room.type === "void") return;
+  // 1. Покрытие пола (PBR)
+  Object.keys(rooms).forEach((rName) => {
+    const room = rooms[rName];
+    const [x1, y1, x2, y2] = room.bounds;
+    const rw = x2 - x1;
+    const rl = y2 - y1;
 
-    const bounds = room.bounds || room;
-    if (!Array.isArray(bounds) || bounds.length < 4) return;
-
-    const [x1, y1, x2, y2] = bounds;
-    const width = x2 - x1;
-    const depth = y2 - y1;
-
-    // Пол
-    const floorGeo = new THREE.PlaneGeometry(width, depth);
-    const floorMat = new THREE.MeshLambertMaterial({ 
-      color: roomColors[colorIdx % roomColors.length], 
-      side: THREE.DoubleSide 
+    const floorGeo = new THREE.PlaneGeometry(rw, rl);
+    const isTile = room.floor_type === "tile";
+    
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: isTile ? 0xdcdde1 : 0xd2b48c,
+      roughness: isTile ? 0.2 : 0.6,
+      metalness: 0.05
     });
-    colorIdx++;
 
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.set(x1 + width / 2, 0.02, y1 + depth / 2);
+    floorMesh.position.set(x1 + rw / 2, 0.01, y1 + rl / 2);
+    floorMesh.receiveShadow = true;
     layoutGroup.add(floorMesh);
-
-    // Стены
-    const wBox = new THREE.BoxGeometry(width, wallHeight, wallThickness);
-    const dBox = new THREE.BoxGeometry(wallThickness, wallHeight, depth);
-
-    const wallS = new THREE.Mesh(wBox, wallMat);
-    wallS.position.set(x1 + width / 2, wallHeight / 2, y1);
-    layoutGroup.add(wallS);
-
-    const wallN = new THREE.Mesh(wBox, wallMat);
-    wallN.position.set(x1 + width / 2, wallHeight / 2, y2);
-    layoutGroup.add(wallN);
-
-    const wallW = new THREE.Mesh(dBox, wallMat);
-    wallW.position.set(x1, wallHeight / 2, y1 + depth / 2);
-    layoutGroup.add(wallW);
-
-    const wallE = new THREE.Mesh(dBox, wallMat);
-    wallE.position.set(x2, wallHeight / 2, y1 + depth / 2);
-    layoutGroup.add(wallE);
   });
 
-  // Отрисовка мебели
-  const furniture = layoutData.furniture || [];
+  // 2. Внешний периметр и перегородки
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: 0xecf0f1,
+    roughness: 0.8,
+    metalness: 0.1
+  });
+
+  const wallHeight = dim.height || 2.8;
+
+  // Отрисовка внешней рамки
+  const extThick = layoutData.wall_thickness?.external || 0.38;
+  createWall(dim.width / 2, wallHeight / 2, extThick / 2, dim.width, wallHeight, extThick, wallMat);
+  createWall(dim.width / 2, wallHeight / 2, dim.length - extThick / 2, dim.width, wallHeight, extThick, wallMat);
+  createWall(extThick / 2, wallHeight / 2, dim.length / 2, extThick, wallHeight, dim.length, wallMat);
+  createWall(dim.width - extThick / 2, wallHeight / 2, dim.length / 2, extThick, wallHeight, dim.length, wallMat);
+
+  // 3. Мебель с реалистичной фаской
   furniture.forEach((item) => {
     const [cx, cy] = item.pos;
-    const [fw, fl] = item.size;
-    const fh = 0.6; // Высота предметов мебели
+    const [fw, fl, fh] = item.size;
 
     const fGeo = new THREE.BoxGeometry(fw, fh, fl);
-    const fMat = new THREE.MeshLambertMaterial({ color: item.color || 0x333333 });
+    const fMat = new THREE.MeshStandardMaterial({
+      color: item.color || 0x34495e,
+      roughness: 0.5,
+      metalness: 0.1
+    });
+
     const fMesh = new THREE.Mesh(fGeo, fMat);
-    fMesh.position.set(cx, fh / 2, cy);
+    fMesh.position.set(cx, fh / 2 + 0.02, cy);
+    fMesh.castShadow = true;
+    fMesh.receiveShadow = true;
     layoutGroup.add(fMesh);
   });
+}
+
+function createWall(x, y, z, w, h, d, mat) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  layoutGroup.add(mesh);
 }
