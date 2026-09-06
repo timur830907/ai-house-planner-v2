@@ -1,81 +1,70 @@
-import os
-import io
-from typing import List, Optional
-from fastapi import FastAPI, HTTPException, Response
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+const API_URL = "https://ai-house-planner-v2.onrender.com";
+let currentPlans = [];
 
-from app.solver_engine import solve_layout_variants
-from app.graph_builder import build_graph_from_rooms
-from app.pdf_exporter import export_to_pdf
-from app.dxf_exporter import export_to_dxf
+async function generatePlans() {
+  const areaInput = document.getElementById("areaInput");
+  const area = parseFloat(areaInput.value) || 100;
+  
+  const roomCheckboxes = document.querySelectorAll('input[name="rooms"]:checked');
+  let rooms = Array.from(roomCheckboxes).map(cb => cb.value);
+  if (rooms.length === 0) rooms = ["Прихожая", "Гостиная", "Кухня", "Ванная", "Спальня 1"];
 
-app = FastAPI(title="AI House Planner API", version="2.0")
+  const statusElement = document.getElementById("statusMessage");
+  if (statusElement) statusElement.innerText = "Генерация 3D модели...";
 
-# --- Настройка CORS ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+  try {
+    const response = await fetch(`${API_URL}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ area, rooms })
+    });
 
-# --- Pydantic-схема запроса ---
-class HouseRequest(BaseModel):
-    area: float
-    rooms: List[str]
+    if (!response.ok) throw new Error("Ошибка генерации");
 
-# --- Эндпоинты ---
-@app.get("/")
-def root():
-    return {"status": "ok", "service": "AI House Planner API v2.0"}
+    const data = await response.json();
+    currentPlans = data.plans || [];
 
-@app.post("/generate")
-def generate_house_plans(request: HouseRequest):
-    """
-    Строит граф помещений и вызывает solve_layout_variants для генерации 10 вариантов.
-    """
-    try:
-        graph = build_graph_from_rooms(request.rooms)
-        variants = solve_layout_variants(graph=graph, total_area=request.area, num_variants=10)
-        
-        return {
-            "status": "success",
-            "area": request.area,
-            "requested_rooms": request.rooms,
-            "count": len(variants),
-            "plans": variants
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка генерации: {str(e)}")
+    if (statusElement) statusElement.innerText = `Успешно! Построено 3D вариантов: ${currentPlans.length}`;
 
-@app.post("/export/pdf")
-def export_pdf(plan_data: dict):
-    """
-    Генерирует PDF-чертёж выбранного варианта.
-    """
-    try:
-        pdf_bytes = export_to_pdf(plan_data)
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=house_plan.pdf"}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка экспорта в PDF: {str(e)}")
+    // Запускаем 3D визуализацию первого варианта
+    if (currentPlans.length > 0 && typeof render3DLayout === "function") {
+      document.getElementById("viewer3d").style.display = "block";
+      render3DLayout(currentPlans[0]);
+    }
+  } catch (error) {
+    console.error(error);
+    if (statusElement) statusElement.innerText = "Ошибка генерации.";
+  }
+}
 
-@app.post("/export/dxf")
-def export_dxf(plan_data: dict):
-    """
-    Генерирует CAD-чертёж (.dxf) выбранного варианта.
-    """
-    try:
-        dxf_bytes = export_to_dxf(plan_data)
-        return Response(
-            content=dxf_bytes,
-            media_type="application/dxf",
-            headers={"Content-Disposition": "attachment; filename=house_plan.dxf"}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка экспорта в DXF: {str(e)}")
+async function downloadExport(planIndex, format) {
+  if (!currentPlans[planIndex]) {
+    alert("Сначала сгенерируйте планировку!");
+    return;
+  }
+
+  const planData = currentPlans[planIndex];
+  const endpoint = format === "pdf" ? "/export/pdf" : "/export/dxf";
+
+  try {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(planData)
+    });
+
+    if (!response.ok) throw new Error(`Ошибка экспорта`);
+
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = `house_plan_${planIndex + 1}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (error) {
+    console.error(error);
+    alert(`Не удалось скачать ${format.toUpperCase()}`);
+  }
+}
