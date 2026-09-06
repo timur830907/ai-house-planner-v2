@@ -23,7 +23,6 @@
         .view-controls { position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; z-index: 5; }
     </style>
 
-    <!-- Правильный порядок загрузки библиотек 3D -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DragControls.js"></script>
@@ -41,7 +40,6 @@
         </div>
         <div class="form-group">
             <label>Геометрия дома</label>
-            <!-- Значения приведены к нижнему регистру для совпадения с backend (l_shape, t_shape) -->
             <select id="shapeSelect" onchange="handleGenerate()">
                 <option value="rectangle">Прямоугольник</option>
                 <option value="l_shape">Г-образный</option>
@@ -80,7 +78,7 @@
 
         document.addEventListener("DOMContentLoaded", () => {
             if (typeof init3DViewer === "function") init3DViewer("viewer-container");
-            handleGenerate(); // Автоматическая первоначальная генерация при загрузке
+            handleGenerate();
         });
 
         function parseNum(val) {
@@ -91,53 +89,70 @@
             const width = parseNum(document.getElementById("widthInput").value);
             const length = parseNum(document.getElementById("lengthInput").value);
             const shape = document.getElementById("shapeSelect").value;
-
-            generatedVariants = [];
             const select = document.getElementById("variantSelect");
+            const btn = document.querySelector(".btn-primary");
+
+            if (btn) btn.innerText = "Генерация...";
+            generatedVariants = [];
             select.innerHTML = "";
 
-            const promises = [];
-            for (let i = 0; i < 30; i++) {
-                promises.push(
-                    fetch("/api/v1/generate", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            width: width,
-                            length: length,
-                            shape: shape,
-                            seed: i
+            try {
+                const promises = [];
+                for (let i = 0; i < 30; i++) {
+                    promises.push(
+                        fetch("/api/v1/generate", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                width: width,
+                                length: length,
+                                shape: shape,
+                                seed: i
+                            })
                         })
-                    }).then(r => r.json()).catch(err => console.error(err))
-                );
-            }
-
-            const results = await Promise.all(promises);
-            results.forEach((data, i) => {
-                if (data && (data.status === "success" || data.rooms || data.layout)) {
-                    const layoutData = data.layout || data;
-                    
-                    // Явно прописываем переданную форму во все сгенерированные варианты
-                    layoutData.shape = shape;
-                    
-                    generatedVariants.push(layoutData);
-                    const opt = document.createElement("option");
-                    opt.value = generatedVariants.length - 1;
-                    opt.textContent = `Вариант ${generatedVariants.length}`;
-                    select.appendChild(opt);
+                        .then(r => r.ok ? r.json() : null)
+                        .catch(err => {
+                            console.error("Ошибка запроса генерации:", err);
+                            return null;
+                        })
+                    );
                 }
-            });
 
-            if (generatedVariants.length > 0) {
-                select.value = 0;
-                if (typeof update3DLayout === "function") update3DLayout(generatedVariants[0]);
+                const results = await Promise.all(promises);
+                results.forEach((data) => {
+                    if (data) {
+                        const layoutData = data.layout || data;
+                        if (layoutData && (layoutData.rooms || layoutData.dimensions)) {
+                            layoutData.shape = shape;
+                            generatedVariants.push(layoutData);
+
+                            const opt = document.createElement("option");
+                            opt.value = generatedVariants.length - 1;
+                            opt.textContent = `Вариант ${generatedVariants.length}`;
+                            select.appendChild(opt);
+                        }
+                    }
+                });
+
+                if (generatedVariants.length > 0) {
+                    select.value = 0;
+                    if (typeof update3DLayout === "function") {
+                        update3DLayout(generatedVariants[0]);
+                    }
+                } else {
+                    console.warn("Сервер не вернул варианты. Проверьте эндпоинт /api/v1/generate");
+                }
+            } catch (err) {
+                console.error("Глобальная ошибка при вызове handleGenerate:", err);
+            } finally {
+                if (btn) btn.innerText = "Сгенерировать 30 вариантов";
             }
         }
 
         function applySelectedVariant() {
             const idx = parseInt(document.getElementById("variantSelect").value) || 0;
-            if (generatedVariants[idx]) {
-                if (typeof update3DLayout === "function") update3DLayout(generatedVariants[idx]);
+            if (generatedVariants[idx] && typeof update3DLayout === "function") {
+                update3DLayout(generatedVariants[idx]);
             }
         }
 
@@ -148,10 +163,7 @@
             const idx = parseInt(document.getElementById("variantSelect").value) || 0;
             
             const currentLayout = generatedVariants[idx] ? JSON.parse(JSON.stringify(generatedVariants[idx])) : {};
-            
-            if (!currentLayout.dimensions) {
-                currentLayout.dimensions = { width: width, length: length };
-            }
+            if (!currentLayout.dimensions) currentLayout.dimensions = { width: width, length: length };
             currentLayout.shape = shape;
 
             try {
@@ -161,11 +173,7 @@
                     body: JSON.stringify(currentLayout)
                 });
 
-                if (!response.ok) {
-                    const errData = await response.json().catch(() => ({}));
-                    alert(`Ошибка сервера при создании PDF: ${errData.detail || response.statusText}`);
-                    return;
-                }
+                if (!response.ok) return alert("Ошибка при формировании PDF");
 
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
@@ -177,8 +185,7 @@
                 a.remove();
                 window.URL.revokeObjectURL(url);
             } catch (err) {
-                console.error("Ошибка при выгрузке PDF:", err);
-                alert("Не удалось отправить запрос на экспорт PDF.");
+                console.error("Ошибка экспорта PDF:", err);
             }
         }
 
@@ -193,7 +200,6 @@
                 shape: shape,
                 rooms: {}
             };
-            currentLayout.shape = shape;
 
             try {
                 const response = await fetch("/api/v1/export/dxf", {
@@ -202,10 +208,7 @@
                     body: JSON.stringify(currentLayout)
                 });
 
-                if (!response.ok) {
-                    alert("Ошибка при выгрузке DXF.");
-                    return;
-                }
+                if (!response.ok) return alert("Ошибка при экспорте DXF");
 
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);

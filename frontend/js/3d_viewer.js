@@ -19,7 +19,10 @@ function update3DLayout(layoutData) {
   const dim = layoutData.dimensions || { width: 12, length: 14, height: 2.8 };
   const rooms = layoutData.rooms || {};
   const furniture = layoutData.furniture || [];
-  const shape = (layoutData.shape || "rectangle").toLowerCase().strip();
+  
+  // Исправлено: безопасное приведение формы к нижнему регистру и удаление пробелов через .trim()
+  const rawShape = layoutData.shape || "rectangle";
+  const shape = String(rawShape).toLowerCase().trim();
 
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xbdc3c7, roughness: 0.6 });
   const intWallMat = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.6 });
@@ -28,6 +31,7 @@ function update3DLayout(layoutData) {
   // 1. Полы, перегородки, двери и 3D-надписи
   Object.keys(rooms).forEach((rName) => {
     const room = rooms[rName];
+    if (!room.bounds) return;
     const [x1, y1, x2, y2] = room.bounds;
     const rw = x2 - x1;
     const rl = y2 - y1;
@@ -47,13 +51,15 @@ function update3DLayout(layoutData) {
     layoutGroup.add(floorMesh);
 
     // Внутренние стены комнат
-    createWall(x1 + rw / 2, wallHeight / 2, y1, rw, wallHeight, 0.15, intWallMat);
-    createWall(x1 + rw / 2, wallHeight / 2, y2, rw, wallHeight, 0.15, intWallMat);
-    createWall(x1, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
-    createWall(x2, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
+    if (typeof createWall === "function") {
+      createWall(x1 + rw / 2, wallHeight / 2, y1, rw, wallHeight, 0.15, intWallMat);
+      createWall(x1 + rw / 2, wallHeight / 2, y2, rw, wallHeight, 0.15, intWallMat);
+      createWall(x1, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
+      createWall(x2, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
+    }
 
     // Отрисовка 3D-дверей (полотна + ручка)
-    if (room.doors && Array.isArray(room.doors)) {
+    if (room.doors && Array.isArray(room.doors) && typeof createDoor === "function") {
       room.doors.forEach((door) => {
         const dWidth = door.width || 0.8;
         if (door.wall === "north") {
@@ -69,57 +75,55 @@ function update3DLayout(layoutData) {
     }
 
     // Добавление текстовой таблички с именем и площадью комнаты над полом
-    createRoomLabel(rName, area, x1 + rw / 2, y1 + rl / 2);
+    if (typeof createRoomLabel === "function") {
+      createRoomLabel(rName, area, x1 + rw / 2, y1 + rl / 2);
+    }
   });
 
   // 2. Внешняя геометрия (поддержка Г-образной, Т-образной, Круглой, Эллиптической и Прямоугольной форм)
   const w = dim.width;
   const l = dim.length;
 
-  if (shape === "circle" || shape === "ellipse" || shape === "круг" || shape === "эллипс") {
-    const rx = w / 2;
-    const ry = l / 2;
-    const cylGeo = new THREE.CylinderGeometry(rx, rx, wallHeight, 32, 1, true);
-    const cylMesh = new THREE.Mesh(cylGeo, wallMat);
-    cylMesh.position.set(rx, wallHeight / 2, ry);
-    if (shape === "ellipse" || shape === "эллипс") cylMesh.scale.set(1, 1, ry / rx);
-    layoutGroup.add(cylMesh);
-  } else if (shape === "l_shape" || shape === "г-образный" || shape === "l-образный") {
-    // Отрисовка Г-образного контура стен с вырезом
-    const cutW = w * 0.4;
-    const cutL = l * 0.4;
-
-    // 6 внешних стен Г-образного периметра
-    createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);                                // Север
-    createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);                                // Запад
-    createWall((w - cutW) / 2, wallHeight / 2, l - 0.19, w - cutW, wallHeight, 0.38, wallMat);            // Юг (короткий)
-    createWall(w - cutW, wallHeight / 2, l - cutL / 2, 0.38, wallHeight, cutL, wallMat);                 // Внутренний угол Y
-    createWall(w - cutW / 2, wallHeight / 2, l - cutL, cutW, wallHeight, 0.38, wallMat);                  // Внутренний угол X
-    createWall(w - 0.19, wallHeight / 2, (l - cutL) / 2, 0.38, wallHeight, l - cutL, wallMat);            // Восток (короткий)
-
-  } else if (shape === "t_shape" || shape === "т-образный") {
-    // Отрисовка Т-образного контура
-    const wingW = w * 0.3;
-    const wingL = l * 0.4;
-
-    createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);                                // Север
-    createWall(0.19, wallHeight / 2, wingL / 2, 0.38, wallHeight, wingL, wallMat);                        // Верх Запад
-    createWall(w - 0.19, wallHeight / 2, wingL / 2, 0.38, wallHeight, wingL, wallMat);                    // Верх Восток
-    createWall(wingW / 2, wallHeight / 2, wingL, wingW, wallHeight, 0.38, wallMat);                      // Выступ Запад
-    createWall(w - wingW / 2, wallHeight / 2, wingL, wingW, wallHeight, 0.38, wallMat);                  // Выступ Восток
-    createWall(wingW + 0.19, wallHeight / 2, wingL + (l - wingL) / 2, 0.38, wallHeight, l - wingL, wallMat);// Низ Запад
-    createWall(w - wingW - 0.19, wallHeight / 2, wingL + (l - wingL) / 2, 0.38, wallHeight, l - wingL, wallMat); // Низ Восток
-    createWall(w / 2, wallHeight / 2, l - 0.19, w - wingW * 2, wallHeight, 0.38, wallMat);                // Юг
-  } else {
-    // Стандартный прямоугольный дом
-    createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
-    createWall(w / 2, wallHeight / 2, l - 0.19, w, wallHeight, 0.38, wallMat);
-    createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
-    createWall(w - 0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
+  if (typeof createWall === "function") {
+    if (shape === "circle" || shape === "ellipse" || shape === "круг" || shape === "эллипс") {
+      const rx = w / 2;
+      const ry = l / 2;
+      const cylGeo = new THREE.CylinderGeometry(rx, rx, wallHeight, 32, 1, true);
+      const cylMesh = new THREE.Mesh(cylGeo, wallMat);
+      cylMesh.position.set(rx, wallHeight / 2, ry);
+      if (shape === "ellipse" || shape === "эллипс") cylMesh.scale.set(1, 1, ry / rx);
+      layoutGroup.add(cylMesh);
+    } else if (shape === "l_shape" || shape === "г-образный" || shape === "l-образный") {
+      const cutW = w * 0.4;
+      const cutL = l * 0.4;
+      createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
+      createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
+      createWall((w - cutW) / 2, wallHeight / 2, l - 0.19, w - cutW, wallHeight, 0.38, wallMat);
+      createWall(w - cutW, wallHeight / 2, l - cutL / 2, 0.38, wallHeight, cutL, wallMat);
+      createWall(w - cutW / 2, wallHeight / 2, l - cutL, cutW, wallHeight, 0.38, wallMat);
+      createWall(w - 0.19, wallHeight / 2, (l - cutL) / 2, 0.38, wallHeight, l - cutL, wallMat);
+    } else if (shape === "t_shape" || shape === "т-образный") {
+      const wingW = w * 0.3;
+      const wingL = l * 0.4;
+      createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
+      createWall(0.19, wallHeight / 2, wingL / 2, 0.38, wallHeight, wingL, wallMat);
+      createWall(w - 0.19, wallHeight / 2, wingL / 2, 0.38, wallHeight, wingL, wallMat);
+      createWall(wingW / 2, wallHeight / 2, wingL, wingW, wallHeight, 0.38, wallMat);
+      createWall(w - wingW / 2, wallHeight / 2, wingL, wingW, wallHeight, 0.38, wallMat);
+      createWall(wingW + 0.19, wallHeight / 2, wingL + (l - wingL) / 2, 0.38, wallHeight, l - wingL, wallMat);
+      createWall(w - wingW - 0.19, wallHeight / 2, wingL + (l - wingL) / 2, 0.38, wallHeight, l - wingL, wallMat);
+      createWall(w / 2, wallHeight / 2, l - 0.19, w - wingW * 2, wallHeight, 0.38, wallMat);
+    } else {
+      createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
+      createWall(w / 2, wallHeight / 2, l - 0.19, w, wallHeight, 0.38, wallMat);
+      createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
+      createWall(w - 0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
+    }
   }
 
   // 3. Расстановка мебели и подсоединение DragControls
   furniture.forEach((item) => {
+    if (!item.pos || !item.size) return;
     const [cx, cy] = item.pos;
     const [fw, fl, fh] = item.size;
 
