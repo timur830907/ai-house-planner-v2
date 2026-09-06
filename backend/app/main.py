@@ -1,17 +1,19 @@
 import os
-from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, HTTPException
+import io
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
-import networkx as nx
 
-from app.solver_engine import solve_layout_variants
-from app.dxf_exporter import export_to_dxf
+# Импорты ваших локальных модулей генерации и экспорта
+from app.solver_engine import generate_layouts  # Предполагаемая функция решения/генерации
 from app.pdf_exporter import export_to_pdf
+from app.dxf_exporter import export_to_dxf
 
-app = FastAPI(title="AI House Plan Generator API", version="2.0.0")
+app = FastAPI(title="AI House Planner API", version="2.0")
 
+# --- Настройка CORS ---
+# Позволяет фронтенду (на Vercel, Netlify, Render или локально) делать запросы к бэкенду
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,55 +22,68 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class RoomRequirement(BaseModel):
-    name: str
-    min_area: float
-    preferred_adjacent: Optional[List[str]] = []
+# --- Pydantic-схемы запросов и ответов ---
+class HouseRequest(BaseModel):
+    area: float
+    rooms: List[str]
 
-class HousePlanRequest(BaseModel):
-    total_area: float
-    floors: int = 1
-    rooms: List[RoomRequirement]
+class LayoutVariant(BaseModel):
+    id: int
+    rooms_data: dict
+    score: Optional[float] = None
 
-class ExportRequest(BaseModel):
-    layout: Dict[str, Any]
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# --- Эндпоинты ---
 
-@app.get("/", response_class=HTMLResponse)
-async def read_index():
-    html_path = os.path.join(BASE_DIR, "index.html")
-    if os.path.exists(html_path):
-        with open(html_path, "r", encoding="utf-8") as f:
-            return f.read()
-    raise HTTPException(status_code=404, detail="index.html не найден")
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "AI House Planner API v2.0"}
 
-@app.post("/api/v1/generate-plan")
-def generate_plan(request: HousePlanRequest):
+
+@app.post("/generate")
+def generate_house_plans(request: HouseRequest):
+    """
+    Генерирует варианты планировок на основе площади и списка комнат.
+    """
     try:
-        G = nx.Graph()
-        for room in request.rooms:
-            G.add_node(room.name, min_area=room.min_area)
-            for adj in room.preferred_adjacent:
-                G.add_edge(room.name, adj)
-
-        variants = solve_layout_variants(G, request.total_area, num_variants=10)
-        return {"variants": variants}
+        # Вызов вашего алгоритма генерации
+        variants = generate_layouts(area=request.area, rooms=request.rooms)
+        
+        return {
+            "status": "success",
+            "area": request.area,
+            "requested_rooms": request.rooms,
+            "count": len(variants),
+            "plans": variants
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Ошибка генерации: {str(e)}")
 
-@app.post("/api/v1/export-dxf")
-def export_dxf_endpoint(req: ExportRequest):
+
+@app.post("/export/pdf")
+def export_pdf(plan_data: dict):
+    """
+    Генерирует PDF-чертёж выбранного варианта с помощью reportlab.
+    """
     try:
-        file_path = export_to_dxf(req.layout, file_path="house_plan.dxf")
-        return FileResponse(path=file_path, media_type="application/dxf", filename="house_plan.dxf")
+        pdf_bytes = export_to_pdf(plan_data)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=house_plan.pdf"}
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Ошибка экспорта в PDF: {str(e)}")
 
-@app.post("/api/v1/export-pdf")
-def export_pdf_endpoint(req: ExportRequest):
+
+@app.post("/export/dxf")
+def export_dxf(plan_data: dict):
     try:
-        file_path = export_to_pdf(req.layout, file_path="house_plan.pdf")
-        return FileResponse(path=file_path, media_type="application/pdf", filename="house_plan.pdf")
+        dxf_bytes = export_to_dxf(plan_data)
+        return Response(
+            content=dxf_bytes,
+            media_type="application/dxf",
+            headers={"Content-Disposition": "attachment; filename=house_plan.dxf"}
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Ошибка экспорта в DXF: {str(e)}")
