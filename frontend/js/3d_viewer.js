@@ -2,6 +2,10 @@ let scene, cameraPersp, cameraOrtho, activeCamera, renderer, controls;
 let layoutGroup;
 let is2DMode = false;
 
+// Переменные для интерактивного перетаскивания мебели
+let furnitureObjects = [];
+let dragControls = null;
+
 function init3DViewer(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -10,7 +14,7 @@ function init3DViewer(containerId) {
   scene.background = new THREE.Color(0xf0f2f5);
 
   const aspect = container.clientWidth / container.clientHeight;
-  
+
   cameraPersp = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
   cameraPersp.position.set(18, 22, 26);
 
@@ -34,7 +38,7 @@ function init3DViewer(containerId) {
   }
 
   setupLighting();
-  
+
   layoutGroup = new THREE.Group();
   scene.add(layoutGroup);
 
@@ -62,6 +66,13 @@ function toggleViewMode(mode2D) {
 
 function update3DLayout(layoutData) {
   if (!layoutGroup) return;
+
+  // Очистка старой сцены и отключение старых контроллеров
+  if (dragControls) {
+    dragControls.dispose();
+    dragControls = null;
+  }
+  furnitureObjects = [];
 
   while (layoutGroup.children.length > 0) {
     layoutGroup.remove(layoutGroup.children[0]);
@@ -101,7 +112,7 @@ function update3DLayout(layoutData) {
     createWall(x2, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
   });
 
-  // 2. Внешняя геометрия (Эллипс, Ромб, Треугольник, Трапеция)
+  // 2. Внешняя геометрия
   const w = dim.width;
   const l = dim.length;
 
@@ -124,7 +135,7 @@ function update3DLayout(layoutData) {
     createWall(w - 0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
   }
 
-  // 3. Мебель
+  // 3. Мебель + сохранение для перетаскивания
   furniture.forEach((item) => {
     const [cx, cy] = item.pos;
     const [fw, fl, fh] = item.size;
@@ -134,8 +145,31 @@ function update3DLayout(layoutData) {
     const fMesh = new THREE.Mesh(fGeo, fMat);
     fMesh.position.set(cx, fh / 2 + 0.02, cy);
     fMesh.castShadow = true;
+    fMesh.userData = { defaultY: fh / 2 + 0.02 }; // Фиксируем высоту над полом
+
     layoutGroup.add(fMesh);
+    furnitureObjects.push(fMesh); // Добавляем в массив мебели
   });
+
+  // Инициализация DragControls для мебели
+  if (furnitureObjects.length > 0 && typeof THREE.DragControls !== 'undefined') {
+    dragControls = new THREE.DragControls(furnitureObjects, activeCamera, renderer.domElement);
+
+    dragControls.addEventListener('dragstart', (event) => {
+      if (controls) controls.enabled = false; // Блокируем вращение камеры
+    });
+
+    dragControls.addEventListener('drag', (event) => {
+      // Сохраняем объект строго на уровне пола при перемещении
+      if (event.object.userData.defaultY) {
+        event.object.position.y = event.object.userData.defaultY;
+      }
+    });
+
+    dragControls.addEventListener('dragend', (event) => {
+      if (controls && !is2DMode) controls.enabled = true; // Возвращаем управление камерой
+    });
+  }
 }
 
 function createWall(x, y, z, w, h, d, mat) {

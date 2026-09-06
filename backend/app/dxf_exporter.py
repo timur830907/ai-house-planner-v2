@@ -1,103 +1,110 @@
 import io
+import os
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
-class NumberedCanvas(canvas.Canvas):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._saved_page_states = []
+# Словарь для безопасной транслитерации кириллицы на случай отсутствия TTF-шрифтов
+CYR_TO_LAT = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo', 'ж': 'zh',
+    'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o',
+    'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts',
+    'ч': 'ch', 'ш': 'sh', 'щ': 'shch', 'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+    'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'Yo', 'Ж': 'Zh',
+    'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M', 'Н': 'N', 'О': 'O',
+    'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U', 'Ф': 'F', 'Х': 'Kh', 'Ц': 'Ts',
+    'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Shch', 'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
+}
 
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
-
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_page_decorations(num_pages)
-            super().showPage()
-        super().save()
-
-    def draw_page_decorations(self, page_count):
-        self.saveState()
-        self.setFont("Helvetica", 9)
-        self.setFillColor(colors.HexColor("#7F8C8D"))
-        self.drawString(50, 30, f"BIM ARCHITECT V2.0 — Страница {self._pageNumber} из {page_count}")
-        self.restoreState()
+def cyr_to_lat(text: str) -> str:
+    return "".join(CYR_TO_LAT.get(ch, ch) for ch in text)
 
 def generate_pdf_report(layout: dict) -> bytes:
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=landscape(A4),
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=40,
-        bottomMargin=40
-    )
-
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontName='Helvetica-Bold',
-        fontSize=20,
-        textColor=colors.HexColor('#2C3E50'),
-        spaceAfter=10
-    )
+    p = canvas.Canvas(buffer, pagesize=landscape(A4))
     
-    body_style = ParagraphStyle(
-        'DocBody',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=10,
-        textColor=colors.HexColor('#34495E'),
-        spaceAfter=15
-    )
+    font_name = "Helvetica-Bold"
+    font_regular = "Helvetica"
+    has_cyrillic_font = False
+    
+    # Попытка загрузить кириллический TTF-шрифт
+    possible_fonts = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+    ]
+    
+    for font_path in possible_fonts:
+        if os.path.exists(font_path):
+            try:
+                pdfmetrics.registerFont(TTFont('CustomCyrillic', font_path))
+                font_name = 'CustomCyrillic'
+                font_regular = 'CustomCyrillic'
+                has_cyrillic_font = True
+                break
+            except Exception:
+                pass
 
-    elements = []
+    # Функция-обертка для безопасного вывода текста без ошибки 500
+    def safe_str(text: str) -> str:
+        if has_cyrillic_font:
+            return text
+        return cyr_to_lat(text)
 
-    # Заголовок
-    elements.append(Paragraph("Проект дома / House Project Plan", title_style))
+    # 1. Заголовок
+    p.setFont(font_name, 18)
+    p.setFillColor(colors.HexColor('#2C3E50'))
+    p.drawString(40, 540, safe_str("ПРОЕКТ ДОМА / HOUSE PLAN REPORT"))
     
     dims = layout.get("dimensions", {})
-    w_m = dims.get("width", 12.0)
-    l_m = dims.get("length", 14.0)
+    w = dims.get("width", 12.0)
+    l = dims.get("length", 14.0)
     shape = layout.get("shape", "rectangle")
-    area = w_m * l_m
-
-    info_text = f"<b>Габариты:</b> {w_m} м x {l_m} м &nbsp;&nbsp;|&nbsp;&nbsp; <b>Площадь:</b> {area:.1f} м² &nbsp;&nbsp;|&nbsp;&nbsp; <b>Форма:</b> {shape.upper()}"
-    elements.append(Paragraph(info_text, body_style))
-    elements.append(Spacer(1, 15))
-
-    # Таблица помещений
+    
+    # 2. Параметры дома
+    p.setFont(font_regular, 11)
+    p.setFillColor(colors.HexColor('#34495E'))
+    info_str = f"Габариты: {w} m x {l} m | Площадь: {w*l:.1f} m2 | Форма: {shape}"
+    p.drawString(40, 515, safe_str(info_str))
+    
+    p.setStrokeColor(colors.HexColor('#BDC3C7'))
+    p.setLineWidth(1)
+    p.line(40, 500, 800, 500)
+    
+    # 3. Список комнат
     rooms = layout.get("rooms", {})
-    table_data = [["Помещение / Room", "Тип покрытия / Floor", "Площадь / Area (m²)"]]
+    y = 470
     
-    for r_name, r_data in rooms.items():
-        b = r_data.get("bounds", [0, 0, 1, 1])
-        r_area = (b[2] - b[0]) * (b[3] - b[1])
-        f_type = "Дерево (Wood)" if r_data.get("floor_type") == "wood" else "Плитка (Tile)"
-        table_data.append([str(r_name), f_type, f"{r_area:.2f} м²"])
+    p.setFont(font_name, 12)
+    p.drawString(40, y, safe_str("Экспликация помещений:"))
+    y -= 25
+    
+    p.setFont(font_regular, 10)
+    
+    if isinstance(rooms, dict) and rooms:
+        for name, data in rooms.items():
+            bounds = data.get("bounds", [0, 0, 1, 1])
+            area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
+            floor_raw = data.get("floor_type", "wood")
+            
+            floor_name = "Плитка" if floor_raw == "tile" else "Дерево/Ламинат"
+            line = f"* {name}: {area:.2f} m2 (Покрытие: {floor_name})"
+            
+            p.drawString(50, y, safe_str(line))
+            y -= 20
+            
+            if y < 60:
+                p.showPage()
+                y = 540
+                p.setFont(font_regular, 10)
 
-    t = Table(table_data, colWidths=[250, 200, 150])
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2C3E50')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 11),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F8F9F9')),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#BDC3C7')),
-        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
-    ]))
-    
-    elements.append(t)
-    
-    doc.build(elements, canvasmaker=NumberedCanvas)
+    # 4. Подвал
+    p.setFont(font_regular, 8)
+    p.setFillColor(colors.HexColor('#95A5A6'))
+    p.drawString(40, 30, safe_str("Сгенерировано в BIM ARCHITECT V2.0"))
+
+    p.showPage()
+    p.save()
     buffer.seek(0)
     return buffer.getvalue()

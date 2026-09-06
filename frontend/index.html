@@ -22,8 +22,11 @@
         #viewer-container { flex: 1; position: relative; }
         .view-controls { position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; z-index: 5; }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- Правильный порядок загрузки библиотек 3D -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DragControls.js"></script>
 </head>
 <body>
     <div class="sidebar">
@@ -91,7 +94,6 @@
             const select = document.getElementById("variantSelect");
             select.innerHTML = "";
 
-            // Параллельный запрос на 30 вариантов для высокой скорости
             const promises = [];
             for (let i = 0; i < 30; i++) {
                 promises.push(
@@ -99,31 +101,37 @@
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                            building_width: width,
-                            building_length: length,
-                            rooms: { shape_type: shape, seed: i }
+                            width: width,
+                            length: length,
+                            shape: shape,
+                            seed: i
                         })
-                    }).then(r => r.json())
+                    }).then(r => r.json()).catch(err => console.error(err))
                 );
             }
 
             const results = await Promise.all(promises);
             results.forEach((data, i) => {
-                if (data.status === "success") {
-                    generatedVariants.push(data.layout);
+                if (data && (data.status === "success" || data.rooms || data.layout)) {
+                    const layoutData = data.layout || data;
+                    generatedVariants.push(layoutData);
                     const opt = document.createElement("option");
-                    opt.value = i;
-                    opt.textContent = `Вариант ${i + 1}`;
+                    opt.value = generatedVariants.length - 1;
+                    opt.textContent = `Вариант ${generatedVariants.length}`;
                     select.appendChild(opt);
                 }
             });
 
-            if (generatedVariants.length > 0) update3DLayout(generatedVariants[0]);
+            if (generatedVariants.length > 0) {
+                if (typeof update3DLayout === "function") update3DLayout(generatedVariants[0]);
+            }
         }
 
         function applySelectedVariant() {
             const idx = parseInt(document.getElementById("variantSelect").value) || 0;
-            if (generatedVariants[idx]) update3DLayout(generatedVariants[idx]);
+            if (generatedVariants[idx]) {
+                if (typeof update3DLayout === "function") update3DLayout(generatedVariants[idx]);
+            }
         }
 
         async function exportPDF() {
@@ -131,16 +139,30 @@
             const length = parseNum(document.getElementById("lengthInput").value);
             const shape = document.getElementById("shapeSelect").value;
 
+            const idx = parseInt(document.getElementById("variantSelect").value) || 0;
+            
+            // Формируем payload с гарантированным присутствием dimensions и shape
+            const currentLayout = generatedVariants[idx] ? JSON.parse(JSON.stringify(generatedVariants[idx])) : {};
+            
+            if (!currentLayout.dimensions) {
+                currentLayout.dimensions = { width: width, length: length };
+            }
+            if (!currentLayout.shape) {
+                currentLayout.shape = shape;
+            }
+
             try {
                 const response = await fetch("/api/v1/export/pdf", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ 
-                        building_width: width, 
-                        building_length: length,
-                        rooms: { shape_type: shape }
-                    })
+                    body: JSON.stringify(currentLayout)
                 });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    alert(`Ошибка сервера при создании PDF: ${errData.detail || response.statusText}`);
+                    return;
+                }
 
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
@@ -150,8 +172,48 @@
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
+                window.URL.revokeObjectURL(url);
             } catch (err) {
-                console.error(err);
+                console.error("Ошибка при выгрузке PDF:", err);
+                alert("Не удалось отправить запрос на экспорт PDF.");
+            }
+        }
+
+        async function exportDXF() {
+            const width = parseNum(document.getElementById("widthInput").value);
+            const length = parseNum(document.getElementById("lengthInput").value);
+            const shape = document.getElementById("shapeSelect").value;
+            const idx = parseInt(document.getElementById("variantSelect").value) || 0;
+
+            const currentLayout = generatedVariants[idx] ? JSON.parse(JSON.stringify(generatedVariants[idx])) : {
+                dimensions: { width: width, length: length },
+                shape: shape,
+                rooms: {}
+            };
+
+            try {
+                const response = await fetch("/api/v1/export/dxf", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(currentLayout)
+                });
+
+                if (!response.ok) {
+                    alert("Ошибка при выгрузке DXF.");
+                    return;
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `House_Plan_${width}x${length}.dxf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error("Ошибка экспорта DXF:", err);
             }
         }
     </script>

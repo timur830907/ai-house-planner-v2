@@ -90,3 +90,21 @@ def generate_house_layout(width: float, length: float, num_rooms: int = 3, shape
         "room_count": len(room_names),
         "rooms": rooms
     }
+def add_mep_routes(rooms: dict, width: float, length: float) -> dict:
+    routes = {"pipes": [], "cables": []}
+    
+    # Вводная точка (щиток / стояк)
+    main_hub = [0.5, 0.5, 0.0] 
+    
+    for r_name, r_data in rooms.items():
+        b = r_data["bounds"]
+        center = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2, 0.1]
+        
+        # Трубы идут к санузлам и кухне
+        if any(w in r_name for w in ["Санузел", "Кухня", "SPA", "с/у"]):
+            routes["pipes"].append({"from": main_hub, "to": center, "type": "water"})
+            
+        # Кабели идут во все помещения
+        routes["cables"].append({"from": main_hub, "to": center, "type": "power"})
+        
+    return routes
