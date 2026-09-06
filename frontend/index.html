@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI House Planner Pro v2.0</title>
+    <title>BIM Architect v2.0</title>
     <style>
         :root { --bg-dark: #1e272e; --panel-bg: #2f3640; --accent: #44bd32; --text: #f5f6fa; }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
         body { display: flex; height: 100vh; background: var(--bg-dark); color: var(--text); overflow: hidden; }
-        .sidebar { width: 340px; background: var(--panel-bg); padding: 25px; display: flex; flex-direction: column; gap: 20px; box-shadow: 4px 0 15px rgba(0,0,0,0.3); z-index: 10; }
-        .sidebar h2 { font-size: 18px; text-transform: uppercase; letter-spacing: 1px; color: #00d2d3; margin-bottom: 5px; }
-        .form-group { display: flex; flex-direction: column; gap: 6px; }
-        .form-group label { font-size: 12px; font-weight: 600; color: #a4b0be; }
-        .form-group input, .form-group select { padding: 10px; background: #353b48; border: 1px solid #718093; border-radius: 6px; color: #fff; font-size: 14px; }
+        .sidebar { width: 340px; background: var(--panel-bg); padding: 20px; display: flex; flex-direction: column; gap: 15px; z-index: 10; box-shadow: 4px 0 15px rgba(0,0,0,0.3); }
+        .sidebar h2 { font-size: 18px; color: #00d2d3; letter-spacing: 1px; }
+        .form-group { display: flex; flex-direction: column; gap: 5px; }
+        .form-group label { font-size: 12px; color: #a4b0be; font-weight: 600; }
+        .form-group input, .form-group select { padding: 9px; background: #353b48; border: 1px solid #718093; border-radius: 6px; color: #fff; font-size: 13px; }
         .btn-group { display: flex; gap: 10px; }
-        .btn { flex: 1; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn { flex: 1; padding: 11px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
         .btn-primary { background: var(--accent); color: #fff; }
         .btn-primary:hover { background: #4cd137; }
         .btn-secondary { background: #718093; color: #fff; }
@@ -27,7 +27,7 @@
 </head>
 <body>
     <div class="sidebar">
-        <h2>BIM Architect v2.0</h2>
+        <h2>BIM ARCHITECT V2.0</h2>
         <div class="form-group">
             <label>Ширина дома (м)</label>
             <input type="text" id="widthInput" value="12.0">
@@ -37,16 +37,29 @@
             <input type="text" id="lengthInput" value="14.0">
         </div>
         <div class="form-group">
-            <label>Вариант планировки</label>
+            <label>Геометрия дома</label>
+            <select id="shapeSelect">
+                <option value="rectangle">Прямоугольник</option>
+                <option value="L_shape">Г-образный</option>
+                <option value="T_shape">Т-образный</option>
+                <option value="triangle">Треугольник</option>
+                <option value="rhombus">Ромб</option>
+                <option value="trapezoid">Трапеция</option>
+                <option value="circle">Круг</option>
+                <option value="ellipse">Эллипс</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Вариант планировки (из 20)</label>
             <select id="variantSelect" onchange="applySelectedVariant()">
                 <option value="0">Вариант 1</option>
             </select>
         </div>
-        <button class="btn btn-primary" onclick="handleGenerate()">Сгенерировать BIM-проект</button>
+        <button class="btn btn-primary" onclick="handleGenerate()">Сгенерировать 20 вариантов</button>
         <hr style="border-color: #57606f;">
         <div class="btn-group">
-            <button class="btn btn-secondary" onclick="exportFile('pdf')">PDF Отчет</button>
-            <button class="btn btn-secondary" onclick="exportFile('dxf')">CAD (DXF)</button>
+            <button class="btn btn-secondary" onclick="exportPDF()">PDF Отчет</button>
+            <button class="btn btn-secondary" onclick="exportDXF()">CAD (DXF)</button>
         </div>
     </div>
 
@@ -72,17 +85,23 @@
         async function handleGenerate() {
             const width = parseNum(document.getElementById("widthInput").value);
             const length = parseNum(document.getElementById("lengthInput").value);
+            const shape = document.getElementById("shapeSelect").value;
 
             generatedVariants = [];
             const select = document.getElementById("variantSelect");
             select.innerHTML = "";
 
-            for (let i = 0; i < 5; i++) {
+            // Генерация 20 вариаций
+            for (let i = 0; i < 20; i++) {
                 try {
                     const res = await fetch("/api/v1/generate", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ building_width: width, building_length: length, rooms: { seed: i } })
+                        body: JSON.stringify({ 
+                            building_width: width, 
+                            building_length: length, 
+                            rooms: { shape_type: shape, seed: i } 
+                        })
                     });
                     const data = await res.json();
                     if (data.status === "success") {
@@ -103,20 +122,37 @@
             if (generatedVariants[idx]) update3DLayout(generatedVariants[idx]);
         }
 
-        async function exportFile(type) {
+        async function exportPDF() {
             const width = parseNum(document.getElementById("widthInput").value);
             const length = parseNum(document.getElementById("lengthInput").value);
-            const response = await fetch(`/api/v1/export/${type}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ building_width: width, building_length: length })
-            });
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `house_plan.${type}`;
-            a.click();
+            const shape = document.getElementById("shapeSelect").value;
+
+            try {
+                const response = await fetch("/api/v1/export/pdf", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ 
+                        building_width: width, 
+                        building_length: length,
+                        rooms: { shape_type: shape }
+                    })
+                });
+
+                if (!response.ok) throw new Error("Ошибка сборки PDF");
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `BIM_House_Plan_${width}x${length}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (err) {
+                alert("Ошибка генерации PDF. Проверьте логи на сервере.");
+                console.error(err);
+            }
         }
     </script>
 </body>

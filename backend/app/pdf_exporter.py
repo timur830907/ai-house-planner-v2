@@ -1,36 +1,48 @@
 import io
-import ezdxf
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
-def generate_dxf_file(width: float, length: float, layout_data: dict) -> bytes:
-    """
-    Генерирует чертеж DXF с контурами стен и названиями комнат.
-    """
-    doc = ezdxf.new('R2010')
-    msp = doc.modelspace()
+def generate_pdf_report(width: float, length: float, layout_data: dict) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    story = []
 
-    # Добавляем слои
-    doc.layers.add(name="OUTLINE", color=1)  # Красный
-    doc.layers.add(name="ROOMS", color=3)    # Зеленый
-    doc.layers.add(name="TEXT", color=7)     # Белый/Черный
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor("#2c3e50"))
+    text_style = ParagraphStyle('TextStyle', parent=styles['Normal'], fontSize=10, leading=14)
 
-    # Внешний контур здания
-    msp.add_lwpolyline([(0, 0), (width, 0), (width, length), (0, length)], close=True, dxfattribs={'layer': 'OUTLINE'})
+    story.append(Paragraph(f"<b>БИМ Проект Дома (BIM ARCHITECT)</b>", title_style))
+    story.append(Spacer(1, 12))
 
-    # Перегородки и надписи
+    area = round(width * length, 2)
+    shape_name = layout_data.get("shape", "rectangle")
+    story.append(Paragraph(f"<b>Габариты:</b> {width} м x {length} м | <b>Площадь:</b> {area} м² | <b>Форма:</b> {shape_name}", text_style))
+    story.append(Spacer(1, 15))
+
+    # Экспликация помещений
+    data = [["Наименование", "Тип покрытия", "Примерная площадь"]]
     rooms = layout_data.get("rooms", {})
-    for room_name, data in rooms.items():
-        bounds = data.get("bounds") if isinstance(data, dict) else data
-        x1, y1, x2, y2 = bounds
-        
-        # Контур комнаты
-        points = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-        msp.add_lwpolyline(points, close=True, dxfattribs={'layer': 'ROOMS'})
-        
-        # Название в центре комнаты
-        cx = (x1 + x2) / 2.0
-        cy = (y1 + y2) / 2.0
-        msp.add_text(room_name, dxfattribs={'layer': 'TEXT', 'height': 0.3}).set_placement((cx, cy), align=ezdxf.enums.TextEntityAlignment.CENTER)
+    for r_name, r_info in rooms.items():
+        b = r_info.get("bounds", [0, 0, 0, 0])
+        r_area = round((b[2] - b[0]) * (b[3] - b[1]), 2)
+        f_type = "Дерево" if r_info.get("floor_type") == "wood" else "Плитка"
+        data.append([r_name, f_type, f"{r_area} м²"])
 
-    out_stream = io.StringIO()
-    doc.write(out_stream)
-    return out_stream.getvalue().encode('utf-8')
+    t = Table(data, colWidths=[200, 150, 150])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#34495e")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#bdc3c7")),
+    ]))
+    story.append(t)
+
+    doc.build(story)
+    pdf_value = buffer.getvalue()
+    buffer.close()
+    return pdf_value
