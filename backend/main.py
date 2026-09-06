@@ -68,3 +68,13 @@ async function downloadExport(planIndex, format) {
     alert(`Не удалось скачать ${format.toUpperCase()}`);
   }
 }
+import os
+from fastapi.staticfiles import StaticFiles
+
+# Определяем абсолютный путь к папке frontend
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+frontend_path = os.path.join(base_dir, "frontend")
+
+# Подключаем раздачу статики (index.html, JS и CSS)
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
