@@ -1,86 +1,118 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI House Planner v2.0</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; color: #333; }
-    header { background: #2c3e50; color: white; padding: 1rem 2rem; text-align: center; }
-    .container { display: flex; height: calc(100vh - 60px); }
-    .sidebar { width: 320px; background: #fff; padding: 20px; border-right: 1px solid #e0e0e0; overflow-y: auto; }
-    .viewer-container { flex: 1; position: relative; background: #1e1e1e; }
-    #canvas-container { width: 100%; height: 100%; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
-    input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-    button { width: 100%; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; }
-    button:hover { background: #219150; }
-  </style>
-  <!-- Three.js & OrbitControls -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI House Planner v2.0</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; background-color: #1a1a1a; color: #fff; }
+        header { padding: 15px; background: #2c3e50; text-align: center; }
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        .sidebar { width: 320px; padding: 20px; background: #ffffff; color: #333; display: flex; flex-direction: column; gap: 15px; }
+        .sidebar label { font-weight: bold; font-size: 13px; }
+        .sidebar input, .sidebar select { width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #ccc; border-radius: 4px; }
+        .btn-submit { padding: 12px; background: #2ecc71; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; margin-top: 10px; }
+        .btn-submit:hover { background: #27ae60; }
+        #viewer-container { flex: 1; position: relative; background: #111; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
-  <header>
-    <h1>AI House Planner v2.0</h1>
-  </header>
-  <div class="container">
-    <div class="sidebar">
-      <h3>Параметры дома</h3>
-      <div class="form-group">
-        <label>Ширина (м):</label>
-        <input type="number" id="width" value="10" step="0.5">
-      </div>
-      <div class="form-group">
-        <label>Длина (м):</label>
-        <input type="number" id="length" value="12" step="0.5">
-      </div>
-      <button id="btn-generate">Сгенерировать планировку</button>
+    <header>
+        <h1>AI House Planner v2.0</h1>
+    </header>
+    <div class="main-container">
+        <div class="sidebar">
+            <h3>Параметры дома</h3>
+            <div>
+                <label>Ширина (м):</label>
+                <input type="text" id="widthInput" value="12.5">
+            </div>
+            <div>
+                <label>Длина (м):</label>
+                <input type="text" id="lengthInput" value="14.5">
+            </div>
+            <div>
+                <label>Геометрия дома:</label>
+                <select id="shapeSelect">
+                    <option value="rectangle">Прямоугольный</option>
+                    <option value="L_shape">Г-образный</option>
+                    <option value="triangle_cut">Срез / Терраса</option>
+                </select>
+            </div>
+            <div>
+                <label>Вариант планировки:</label>
+                <select id="variantSelect" onchange="applySelectedVariant()">
+                    <option value="0">Вариант 1 (Текущий)</option>
+                </select>
+            </div>
+            <button class="btn-submit" onclick="handleGenerate()">Сгенерировать (10 вариантов)</button>
+        </div>
+        <div id="viewer-container"></div>
     </div>
-    <div class="viewer-container">
-      <div id="canvas-container"></div>
-    </div>
-  </div>
 
-  <script src="/js/3d_viewer.js"></script>
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      // Инициализация 3D сцены
-      init3DViewer('canvas-container');
+    <script src="/js/3d_viewer.js"></script>
+    <script>
+        let generatedVariants = [];
 
-      document.getElementById('btn-generate').addEventListener('click', async () => {
-        const width = parseFloat(document.getElementById('width').value);
-        const length = parseFloat(document.getElementById('length').value);
+        document.addEventListener("DOMContentLoaded", () => {
+            if (typeof init3DViewer === "function") {
+                init3DViewer("viewer-container");
+            }
+        });
 
-        const payload = {
-          building_width: width,
-          building_length: length,
-          floors: 1,
-          rooms: {
-            "Гостиная": { min_area: 20 },
-            "Спальня": { min_area: 14 },
-            "Кухня": { min_area: 12 },
-            "Cанузел": { min_area: 6 }
-          }
-        };
-
-        try {
-          const response = await fetch('/api/v1/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          const data = await response.json();
-          if (data.status === 'success') {
-            update3DLayout(data.layout);
-          }
-        } catch (err) {
-          console.error("Ошибка при генерации:", err);
+        function parseNum(val) {
+            if (typeof val === "string") val = val.replace(',', '.');
+            return parseFloat(val) || 10.0;
         }
-      });
-    });
-  </script>
+
+        async function handleGenerate() {
+            const width = parseNum(document.getElementById("widthInput").value);
+            const length = parseNum(document.getElementById("lengthInput").value);
+            const shape = document.getElementById("shapeSelect").value;
+
+            generatedVariants = [];
+            const variantSelect = document.getElementById("variantSelect");
+            variantSelect.innerHTML = "";
+
+            // Запрашиваем 10 альтернативных планировок
+            for (let i = 0; i < 10; i++) {
+                try {
+                    const response = await fetch("/api/v1/generate", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ 
+                            building_width: width, 
+                            building_length: length,
+                            rooms: { shape_type: shape, seed: i }
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.status === "success") {
+                        generatedVariants.push(data.layout);
+                        const opt = document.createElement("option");
+                        opt.value = i;
+                        opt.textContent = `Вариант ${i + 1}`;
+                        variantSelect.appendChild(opt);
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+
+            if (generatedVariants.length > 0) {
+                update3DLayout(generatedVariants[0]);
+            }
+        }
+
+        function applySelectedVariant() {
+            const idx = parseInt(document.getElementById("variantSelect").value) || 0;
+            if (generatedVariants[idx]) {
+                update3DLayout(generatedVariants[idx]);
+            }
+        }
+    </script>
 </body>
 </html>
