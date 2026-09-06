@@ -1,71 +1,75 @@
 import io
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.pdfgen import canvas
 from reportlab.lib import colors
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
-def generate_pdf_report(width: float, length: float, layout_data: dict) -> bytes:
+def generate_pdf_report(layout: dict) -> bytes:
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    story = []
+    p = canvas.Canvas(buffer, pagesize=landscape(A4))
+    width_page, height_page = landscape(A4)
 
-    # Регистрация кириллического шрифта (если файл присутствует, иначе используем безопасный кодинг)
-    try:
-        pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
-        font_name = 'DejaVuSans'
-    except Exception:
-        font_name = 'Helvetica'
+    # Заголовок
+    p.setFont("Helvetica-Bold", 18)
+    p.drawString(40, height_page - 40, "Проект дома / House Plan (BIM ARCHITECT)")
 
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'TitleStyle', 
-        parent=styles['Heading1'], 
-        fontName=font_name, 
-        fontSize=16, 
-        leading=20, 
-        textColor=colors.HexColor("#2c3e50")
-    )
-    text_style = ParagraphStyle(
-        'TextStyle', 
-        parent=styles['Normal'], 
-        fontName=font_name, 
-        fontSize=10, 
-        leading=14
-    )
-
-    story.append(Paragraph("<b>Проект дома / House Plan (BIM ARCHITECT)</b>", title_style))
-    story.append(Spacer(1, 10))
-
-    area = round(width * length, 2)
-    shape_name = layout_data.get("shape", "rectangle")
-    story.append(Paragraph(f"<b>Габариты:</b> {width} м x {length} м | <b>Площадь:</b> {area} м² | <b>Форма:</b> {shape_name}", text_style))
-    story.append(Spacer(1, 15))
-
-    # Таблица помещений
-    data = [["Помещение", "Тип покрытия", "Площадь (м²)"]]
-    rooms = layout_data.get("rooms", {})
+    dims = layout.get("dimensions", {})
+    w_m = dims.get("width", 12.0)
+    l_m = dims.get("length", 14.0)
+    shape = layout.get("shape", "rectangle")
     
-    for r_name, r_info in rooms.items():
-        b = r_info.get("bounds", [0, 0, 0, 0])
-        r_area = round((b[2] - b[0]) * (b[3] - b[1]), 2)
-        f_type = "Дерево" if r_info.get("floor_type") == "wood" else "Плитка"
-        data.append([r_name, f_type, f"{r_area} м²"])
+    p.setFont("Helvetica", 11)
+    p.drawString(40, height_page - 60, f"Габариты: {w_m} м x {l_m} м | Площадь: {w_m * l_m:.1f} м² | Форма: {shape}")
 
-    t = Table(data, colWidths=[180, 150, 150])
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#34495e")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, -1), font_name),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#bdc3c7")),
-    ]))
-    story.append(t)
+    # Отрисовка схемы (2D-план)
+    rooms = layout.get("rooms", {})
+    if rooms:
+        # Масштабирование схемы под холст PDF
+        scale = min(400 / w_m, 350 / l_m)
+        offset_x = 50
+        offset_y = 100
 
-    doc.build(story)
-    pdf_value = buffer.getvalue()
-    buffer.close()
-    return pdf_value
+        p.setStrokeColor(colors.HexColor("#2C3E50"))
+        p.setLineWidth(2)
+
+        for room_name, room_data in rooms.items():
+            bounds = room_data.get("bounds", [0, 0, 1, 1])
+            x1, y1, x2, y2 = bounds
+
+            px1 = offset_x + x1 * scale
+            py1 = offset_y + y1 * scale
+            pw = (x2 - x1) * scale
+            ph = (y2 - y1) * scale
+
+            # Заливка помещения
+            p.setFillColor(colors.HexColor("#ECF0F1") if room_data.get("floor_type") == "wood" else colors.HexColor("#E1F5FE"))
+            p.rect(px1, py1, pw, ph, fill=1, stroke=1)
+
+            # Название комнаты
+            p.setFillColor(colors.HexColor("#2C3E50"))
+            p.setFont("Helvetica-Bold", 9)
+            p.drawCentredString(px1 + pw / 2, py1 + ph / 2 + 5, str(room_name))
+            
+            # Площадь
+            area = (x2 - x1) * (y2 - y1)
+            p.setFont("Helvetica", 8)
+            p.drawCentredString(px1 + pw / 2, py1 + ph / 2 - 8, f"{area:.1f} m²")
+
+    # Справа рисуем экспликацию (таблицу)
+    table_x = 500
+    table_y = height_page - 100
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(table_x, table_y, "Экспликация помещений")
+    
+    p.setFont("Helvetica", 9)
+    y_curr = table_y - 20
+    for r_name, r_data in rooms.items():
+        b = r_data.get("bounds", [0, 0, 1, 1])
+        area = (b[2] - b[0]) * (b[3] - b[1])
+        p.drawString(table_x, y_curr, f"• {r_name}: {area:.1f} м²")
+        y_curr -= 16
+
+    p.showPage()
+    p.save()
+    
+    buffer.seek(0)
+    return buffer.getvalue()
