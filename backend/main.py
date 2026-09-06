@@ -1,80 +1,68 @@
-const API_URL = "https://ai-house-planner-v2.onrender.com";
-let currentPlans = [];
-
-async function generatePlans() {
-  const areaInput = document.getElementById("areaInput");
-  const area = parseFloat(areaInput.value) || 100;
-  
-  const roomCheckboxes = document.querySelectorAll('input[name="rooms"]:checked');
-  let rooms = Array.from(roomCheckboxes).map(cb => cb.value);
-  if (rooms.length === 0) rooms = ["Прихожая", "Гостиная", "Кухня", "Ванная", "Спальня 1"];
-
-  const statusElement = document.getElementById("statusMessage");
-  if (statusElement) statusElement.innerText = "Генерация 3D модели...";
-
-  try {
-    const response = await fetch(`${API_URL}/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ area, rooms })
-    });
-
-    if (!response.ok) throw new Error("Ошибка генерации");
-
-    const data = await response.json();
-    currentPlans = data.plans || [];
-
-    if (statusElement) statusElement.innerText = `Успешно! Построено 3D вариантов: ${currentPlans.length}`;
-
-    // Запускаем 3D визуализацию первого варианта
-    if (currentPlans.length > 0 && typeof render3DLayout === "function") {
-      document.getElementById("viewer3d").style.display = "block";
-      render3DLayout(currentPlans[0]);
-    }
-  } catch (error) {
-    console.error(error);
-    if (statusElement) statusElement.innerText = "Ошибка генерации.";
-  }
-}
-
-async function downloadExport(planIndex, format) {
-  if (!currentPlans[planIndex]) {
-    alert("Сначала сгенерируйте планировку!");
-    return;
-  }
-
-  const planData = currentPlans[planIndex];
-  const endpoint = format === "pdf" ? "/export/pdf" : "/export/dxf";
-
-  try {
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(planData)
-    });
-
-    if (!response.ok) throw new Error(`Ошибка экспорта`);
-
-    const blob = await response.blob();
-    const downloadUrl = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = `house_plan_${planIndex + 1}.${format}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } catch (error) {
-    console.error(error);
-    alert(`Не удалось скачать ${format.toUpperCase()}`);
-  }
-}
 import os
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from typing import Dict, Any, List, Optional
 
-# Определяем абсолютный путь к папке frontend
-base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-frontend_path = os.path.join(base_dir, "frontend")
+# Импорт логики генерации
+from backend.app.solver_engine import solve_layout
 
-# Подключаем раздачу статики (index.html, JS и CSS)
-if os.path.exists(frontend_path):
-    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+app = FastAPI(title="AI House Planner API", version="2.0")
+
+# CORS настройки
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Модели данных
+class RoomRequirement(BaseModel):
+    min_area: float
+    max_area: Optional[float] = None
+    adjacent_to: Optional[List[str]] = []
+
+class LayoutRequest(BaseModel):
+    building_width: float
+    building_length: float
+    floors: int = 1
+    rooms: Dict[str, RoomRequirement]
+
+# Определение путей к фронтенду
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Путь к папке frontend из структуры проекта
+FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "../../frontend"))
+
+# Подключение статических файлов (JS, CSS)
+js_path = os.path.join(FRONTEND_DIR, "js")
+if os.path.exists(js_path):
+    app.mount("/js", StaticFiles(directory=js_path), name="js")
+
+css_path = os.path.join(FRONTEND_DIR, "css")
+if os.path.exists(css_path):
+    app.mount("/css", StaticFiles(directory=css_path), name="css")
+
+# Эндпоинт генерации планировки
+@app.post("/api/v1/generate")
+def generate_layout(req: LayoutRequest):
+    try:
+        result = solve_layout(
+            width=req.building_width,
+            length=req.building_length,
+            rooms=req.rooms
+        )
+        return {"status": "success", "layout": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Главная страница - отдача index.html
+@app.get("/")
+def read_root():
+    index_file = os.path.join(FRONTEND_DIR, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+    return {"status": "ok", "message": "API running, index.html not found"}
