@@ -7,7 +7,7 @@ function init3DViewer(containerId) {
   if (!container) return;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf4f6f7);
+  scene.background = new THREE.Color(0xf0f2f5);
 
   const aspect = container.clientWidth / container.clientHeight;
   
@@ -23,13 +23,12 @@ function init3DViewer(containerId) {
 
   activeCamera = cameraPersp;
 
-  // Рендерер с PBR и мягкими тенями
+  // WebGL Рендерер
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.outputEncoding = THREE.sRGBEncoding;
 
   container.appendChild(renderer.domElement);
 
@@ -37,7 +36,7 @@ function init3DViewer(containerId) {
     controls = new THREE.OrbitControls(cameraPersp, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI / 2 - 0.05; // Не уходить под пол
+    controls.maxPolarAngle = Math.PI / 2 - 0.05;
   }
 
   setupLighting();
@@ -71,22 +70,14 @@ function init3DViewer(containerId) {
 }
 
 function setupLighting() {
-  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
   scene.add(ambient);
 
-  const sun = new THREE.DirectionalLight(0xfff5e6, 1.2);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
   sun.position.set(20, 35, 15);
   sun.castShadow = true;
   sun.shadow.mapSize.width = 2048;
   sun.shadow.mapSize.height = 2048;
-  sun.shadow.camera.near = 0.5;
-  sun.shadow.camera.far = 100;
-  
-  const shadowCamSize = 25;
-  sun.shadow.camera.left = -shadowCamSize;
-  sun.shadow.camera.right = shadowCamSize;
-  sun.shadow.camera.top = shadowCamSize;
-  sun.shadow.camera.bottom = -shadowCamSize;
   sun.shadow.bias = -0.0005;
 
   scene.add(sun);
@@ -106,15 +97,28 @@ function toggleViewMode(mode2D) {
 function update3DLayout(layoutData) {
   if (!layoutGroup) return;
 
+  // Очистка предыдущей сцены
   while (layoutGroup.children.length > 0) {
     layoutGroup.remove(layoutGroup.children[0]);
   }
 
-  const dim = layoutData.dimensions || { width: 10, length: 12, height: 2.8 };
+  const dim = layoutData.dimensions || { width: 12, length: 14, height: 2.8 };
   const rooms = layoutData.rooms || {};
   const furniture = layoutData.furniture || [];
 
-  // 1. Покрытие пола (PBR)
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xbdc3c7, roughness: 0.6 });
+  const intWallMat = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.6 });
+  const wallHeight = dim.height || 2.8;
+
+  const extThick = layoutData.wall_thickness?.external || 0.38;
+  const intThick = layoutData.wall_thickness?.internal || 0.15;
+
+  // 1. Отрисовка полов комнат
+  const roomColors = {
+    "wood": 0xd2b48c,
+    "tile": 0x95a5a6
+  };
+
   Object.keys(rooms).forEach((rName) => {
     const room = rooms[rName];
     const [x1, y1, x2, y2] = room.bounds;
@@ -122,12 +126,10 @@ function update3DLayout(layoutData) {
     const rl = y2 - y1;
 
     const floorGeo = new THREE.PlaneGeometry(rw, rl);
-    const isTile = room.floor_type === "tile";
-    
     const floorMat = new THREE.MeshStandardMaterial({
-      color: isTile ? 0xdcdde1 : 0xd2b48c,
-      roughness: isTile ? 0.2 : 0.6,
-      metalness: 0.05
+      color: roomColors[room.floor_type] || 0xecf0f1,
+      side: THREE.DoubleSide,
+      roughness: 0.4
     });
 
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
@@ -135,25 +137,21 @@ function update3DLayout(layoutData) {
     floorMesh.position.set(x1 + rw / 2, 0.01, y1 + rl / 2);
     floorMesh.receiveShadow = true;
     layoutGroup.add(floorMesh);
+
+    // Внутренние стены вокруг каждой комнаты
+    createWall(x1 + rw / 2, wallHeight / 2, y1, rw, wallHeight, intThick, intWallMat);
+    createWall(x1 + rw / 2, wallHeight / 2, y2, rw, wallHeight, intThick, intWallMat);
+    createWall(x1, wallHeight / 2, y1 + rl / 2, intThick, wallHeight, rl, intWallMat);
+    createWall(x2, wallHeight / 2, y1 + rl / 2, intThick, wallHeight, rl, intWallMat);
   });
 
-  // 2. Внешний периметр и перегородки
-  const wallMat = new THREE.MeshStandardMaterial({
-    color: 0xecf0f1,
-    roughness: 0.8,
-    metalness: 0.1
-  });
-
-  const wallHeight = dim.height || 2.8;
-
-  // Отрисовка внешней рамки
-  const extThick = layoutData.wall_thickness?.external || 0.38;
+  // 2. Внешние контурные стены
   createWall(dim.width / 2, wallHeight / 2, extThick / 2, dim.width, wallHeight, extThick, wallMat);
   createWall(dim.width / 2, wallHeight / 2, dim.length - extThick / 2, dim.width, wallHeight, extThick, wallMat);
   createWall(extThick / 2, wallHeight / 2, dim.length / 2, extThick, wallHeight, dim.length, wallMat);
   createWall(dim.width - extThick / 2, wallHeight / 2, dim.length / 2, extThick, wallHeight, dim.length, wallMat);
 
-  // 3. Мебель с реалистичной фаской
+  // 3. Расстановка мебели
   furniture.forEach((item) => {
     const [cx, cy] = item.pos;
     const [fw, fl, fh] = item.size;
@@ -161,8 +159,7 @@ function update3DLayout(layoutData) {
     const fGeo = new THREE.BoxGeometry(fw, fh, fl);
     const fMat = new THREE.MeshStandardMaterial({
       color: item.color || 0x34495e,
-      roughness: 0.5,
-      metalness: 0.1
+      roughness: 0.5
     });
 
     const fMesh = new THREE.Mesh(fGeo, fMat);
