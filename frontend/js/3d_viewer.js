@@ -64,10 +64,74 @@ function toggleViewMode(mode2D) {
   if (controls) controls.enabled = !is2DMode;
 }
 
+// -------------------------------------------------------------
+// Вспомогательные функции: Названия комнат и Двери
+// -------------------------------------------------------------
+
+// Создание спрайта с текстом наименования и площади комнаты
+function createRoomLabel(name, area, x, z) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 256;
+  canvas.height = 128;
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = "#2c3e50";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "#1e272e";
+  ctx.font = "Bold 24px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(name, 128, 50);
+
+  ctx.fillStyle = "#7f8c8d";
+  ctx.font = "20px Arial";
+  ctx.fillText(area.toFixed(1) + " м²", 128, 85);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+  const sprite = new THREE.Sprite(spriteMaterial);
+
+  sprite.position.set(x, 2.2, z);
+  sprite.scale.set(3, 1.5, 1);
+  layoutGroup.add(sprite);
+}
+
+// Создание 3D-двери с полотном и дверной ручкой
+function createDoor(x, y, z, width, height, rotationY) {
+  const doorGroup = new THREE.Group();
+
+  // Полотно двери
+  const doorGeo = new THREE.BoxGeometry(width, height, 0.08);
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0x8e5a2b, roughness: 0.4 });
+  const doorMesh = new THREE.Mesh(doorGeo, doorMat);
+  doorMesh.position.set(0, height / 2, 0);
+
+  // Дверная ручка
+  const handleGeo = new THREE.SphereGeometry(0.05, 8, 8);
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0xdcdde1, metalness: 0.8 });
+  const handleMesh = new THREE.Mesh(handleGeo, handleMat);
+  handleMesh.position.set(width * 0.35, height / 2, 0.06);
+
+  doorGroup.add(doorMesh);
+  doorGroup.add(handleMesh);
+
+  doorGroup.position.set(x, y, z);
+  doorGroup.rotation.y = rotationY;
+
+  layoutGroup.add(doorGroup);
+}
+
+// -------------------------------------------------------------
+// Основная генерация сцены
+// -------------------------------------------------------------
+
 function update3DLayout(layoutData) {
   if (!layoutGroup) return;
 
-  // Очистка старой сцены и отключение старых контроллеров
   if (dragControls) {
     dragControls.dispose();
     dragControls = null;
@@ -87,13 +151,15 @@ function update3DLayout(layoutData) {
   const intWallMat = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.6 });
   const wallHeight = dim.height || 2.8;
 
-  // 1. Полы и перегородки
+  // 1. Полы, перегородки, двери и 3D-надписи
   Object.keys(rooms).forEach((rName) => {
     const room = rooms[rName];
     const [x1, y1, x2, y2] = room.bounds;
     const rw = x2 - x1;
     const rl = y2 - y1;
+    const area = rw * rl;
 
+    // Пол
     const floorGeo = new THREE.PlaneGeometry(rw, rl);
     const floorMat = new THREE.MeshStandardMaterial({
       color: room.floor_type === "wood" ? 0xd2b48c : 0x95a5a6,
@@ -106,13 +172,33 @@ function update3DLayout(layoutData) {
     floorMesh.receiveShadow = true;
     layoutGroup.add(floorMesh);
 
+    // Внутренние стены
     createWall(x1 + rw / 2, wallHeight / 2, y1, rw, wallHeight, 0.15, intWallMat);
     createWall(x1 + rw / 2, wallHeight / 2, y2, rw, wallHeight, 0.15, intWallMat);
     createWall(x1, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
     createWall(x2, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
+
+    // Отрисовка дверей для комнаты
+    if (room.doors && Array.isArray(room.doors)) {
+      room.doors.forEach((door) => {
+        const dWidth = door.width || 0.8;
+        if (door.wall === "north") {
+          createDoor(x1 + rw * door.pos, 0, y1, dWidth, 2.1, 0);
+        } else if (door.wall === "south") {
+          createDoor(x1 + rw * door.pos, 0, y2, dWidth, 2.1, 0);
+        } else if (door.wall === "west") {
+          createDoor(x1, 0, y1 + rl * door.pos, dWidth, 2.1, Math.PI / 2);
+        } else if (door.wall === "east") {
+          createDoor(x2, 0, y1 + rl * door.pos, dWidth, 2.1, Math.PI / 2);
+        }
+      });
+    }
+
+    // Добавление текстовой надписи в центр комнаты
+    createRoomLabel(rName, area, x1 + rw / 2, y1 + rl / 2);
   });
 
-  // 2. Внешняя геометрия
+  // 2. Внешние стены
   const w = dim.width;
   const l = dim.length;
 
@@ -135,7 +221,7 @@ function update3DLayout(layoutData) {
     createWall(w - 0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
   }
 
-  // 3. Мебель + сохранение для перетаскивания
+  // 3. Расстановка мебели и привязка DragControls
   furniture.forEach((item) => {
     const [cx, cy] = item.pos;
     const [fw, fl, fh] = item.size;
@@ -145,29 +231,27 @@ function update3DLayout(layoutData) {
     const fMesh = new THREE.Mesh(fGeo, fMat);
     fMesh.position.set(cx, fh / 2 + 0.02, cy);
     fMesh.castShadow = true;
-    fMesh.userData = { defaultY: fh / 2 + 0.02 }; // Фиксируем высоту над полом
+    fMesh.userData = { defaultY: fh / 2 + 0.02 };
 
     layoutGroup.add(fMesh);
-    furnitureObjects.push(fMesh); // Добавляем в массив мебели
+    furnitureObjects.push(fMesh);
   });
 
-  // Инициализация DragControls для мебели
   if (furnitureObjects.length > 0 && typeof THREE.DragControls !== 'undefined') {
     dragControls = new THREE.DragControls(furnitureObjects, activeCamera, renderer.domElement);
 
-    dragControls.addEventListener('dragstart', (event) => {
-      if (controls) controls.enabled = false; // Блокируем вращение камеры
+    dragControls.addEventListener('dragstart', () => {
+      if (controls) controls.enabled = false;
     });
 
     dragControls.addEventListener('drag', (event) => {
-      // Сохраняем объект строго на уровне пола при перемещении
       if (event.object.userData.defaultY) {
         event.object.position.y = event.object.userData.defaultY;
       }
     });
 
-    dragControls.addEventListener('dragend', (event) => {
-      if (controls && !is2DMode) controls.enabled = true; // Возвращаем управление камерой
+    dragControls.addEventListener('dragend', () => {
+      if (controls && !is2DMode) controls.enabled = true;
     });
   }
 }
