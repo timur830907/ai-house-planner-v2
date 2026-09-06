@@ -5,16 +5,16 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="AI House Planner API", version="2.0")
 
-# Вычисляем корень репозитория: main.py -> app -> backend -> AI_House_Planner_v2
+# Вычисляем корень проекта: main.py -> app -> backend -> AI_House_Planner_v2
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
-# Подключение JS и CSS
+# Подключение статических файлов (JS)
 js_path = os.path.join(FRONTEND_DIR, "js")
 if os.path.exists(js_path):
     app.mount("/js", StaticFiles(directory=js_path), name="js")
 
-# Главная страница сайта
+# Главная страница
 @app.get("/")
 def read_root():
     index_file = os.path.join(FRONTEND_DIR, "index.html")
