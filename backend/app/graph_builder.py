@@ -1,15 +1,27 @@
 import networkx as nx
 
-def build_room_graph(rooms_data):
-    G = nx.Graph()
+ROOM_MIN_AREAS = {
+    "Гостиная": 20.0,
+    "Кухня": 12.0,
+    "Прихожая": 8.0,
+    "Ванная": 6.0,
+    "Спальня 1": 14.0,
+    "Спальня 2": 12.0,
+    "Кабинет": 10.0,
+    "Гардероб": 5.0,
+}
+
+def build_graph_from_rooms(rooms: list) -> nx.Graph:
+    """Создает граф NetworkX со свойствами минимальной площади для каждой комнаты."""
+    graph = nx.Graph()
     
-    for room in rooms_data:
-        G.add_node(room['name'], min_area=room['min_area'])
-    
-    for room in rooms_data:
-        room_name = room['name']
-        for adjacent in room.get('preferred_adjacent', []):
-            if G.has_node(adjacent):
-                G.add_edge(room_name, adjacent)
-                
-    return G
+    for room in rooms:
+        min_area = ROOM_MIN_AREAS.get(room, 10.0)
+        graph.add_node(room, min_area=min_area)
+        
+    if "Прихожая" in rooms and "Гостиная" in rooms:
+        graph.add_edge("Прихожая", "Гостиная")
+    if "Гостиная" in rooms and "Кухня" in rooms:
+        graph.add_edge("Гостиная", "Кухня")
+        
+    return graph
