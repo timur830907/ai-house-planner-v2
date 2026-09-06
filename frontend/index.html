@@ -41,10 +41,11 @@
         </div>
         <div class="form-group">
             <label>Геометрия дома</label>
-            <select id="shapeSelect">
+            <!-- Значения приведены к нижнему регистру для совпадения с backend (l_shape, t_shape) -->
+            <select id="shapeSelect" onchange="handleGenerate()">
                 <option value="rectangle">Прямоугольник</option>
-                <option value="L_shape">Г-образный</option>
-                <option value="T_shape">Т-образный</option>
+                <option value="l_shape">Г-образный</option>
+                <option value="t_shape">Т-образный</option>
                 <option value="triangle">Треугольник</option>
                 <option value="rhombus">Ромб</option>
                 <option value="trapezoid">Трапеция</option>
@@ -79,6 +80,7 @@
 
         document.addEventListener("DOMContentLoaded", () => {
             if (typeof init3DViewer === "function") init3DViewer("viewer-container");
+            handleGenerate(); // Автоматическая первоначальная генерация при загрузке
         });
 
         function parseNum(val) {
@@ -114,6 +116,10 @@
             results.forEach((data, i) => {
                 if (data && (data.status === "success" || data.rooms || data.layout)) {
                     const layoutData = data.layout || data;
+                    
+                    // Явно прописываем переданную форму во все сгенерированные варианты
+                    layoutData.shape = shape;
+                    
                     generatedVariants.push(layoutData);
                     const opt = document.createElement("option");
                     opt.value = generatedVariants.length - 1;
@@ -123,6 +129,7 @@
             });
 
             if (generatedVariants.length > 0) {
+                select.value = 0;
                 if (typeof update3DLayout === "function") update3DLayout(generatedVariants[0]);
             }
         }
@@ -138,18 +145,14 @@
             const width = parseNum(document.getElementById("widthInput").value);
             const length = parseNum(document.getElementById("lengthInput").value);
             const shape = document.getElementById("shapeSelect").value;
-
             const idx = parseInt(document.getElementById("variantSelect").value) || 0;
             
-            // Формируем payload с гарантированным присутствием dimensions и shape
             const currentLayout = generatedVariants[idx] ? JSON.parse(JSON.stringify(generatedVariants[idx])) : {};
             
             if (!currentLayout.dimensions) {
                 currentLayout.dimensions = { width: width, length: length };
             }
-            if (!currentLayout.shape) {
-                currentLayout.shape = shape;
-            }
+            currentLayout.shape = shape;
 
             try {
                 const response = await fetch("/api/v1/export/pdf", {
@@ -190,6 +193,7 @@
                 shape: shape,
                 rooms: {}
             };
+            currentLayout.shape = shape;
 
             try {
                 const response = await fetch("/api/v1/export/dxf", {

@@ -1,137 +1,11 @@
-let scene, cameraPersp, cameraOrtho, activeCamera, renderer, controls;
-let layoutGroup;
-let is2DMode = false;
-
-// Переменные для интерактивного перетаскивания мебели
-let furnitureObjects = [];
-let dragControls = null;
-
-function init3DViewer(containerId) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf0f2f5);
-
-  const aspect = container.clientWidth / container.clientHeight;
-
-  cameraPersp = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
-  cameraPersp.position.set(18, 22, 26);
-
-  const d = 15;
-  cameraOrtho = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 0.1, 1000);
-  cameraOrtho.position.set(0, 50, 0);
-  cameraOrtho.lookAt(0, 0, 0);
-
-  activeCamera = cameraPersp;
-
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(container.clientWidth, container.clientHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-  container.appendChild(renderer.domElement);
-
-  if (typeof THREE.OrbitControls !== 'undefined') {
-    controls = new THREE.OrbitControls(cameraPersp, renderer.domElement);
-    controls.enableDamping = true;
-  }
-
-  setupLighting();
-
-  layoutGroup = new THREE.Group();
-  scene.add(layoutGroup);
-
-  function animate() {
-    requestAnimationFrame(animate);
-    if (controls && !is2DMode) controls.update();
-    renderer.render(scene, activeCamera);
-  }
-  animate();
-}
-
-function setupLighting() {
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-  sun.position.set(20, 35, 15);
-  sun.castShadow = true;
-  scene.add(sun);
-}
-
-function toggleViewMode(mode2D) {
-  is2DMode = mode2D;
-  activeCamera = is2DMode ? cameraOrtho : cameraPersp;
-  if (controls) controls.enabled = !is2DMode;
-}
-
 // -------------------------------------------------------------
-// Вспомогательные функции: Названия комнат и Двери
-// -------------------------------------------------------------
-
-// Создание спрайта с текстом наименования и площади комнаты
-function createRoomLabel(name, area, x, z) {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width = 256;
-  canvas.height = 128;
-
-  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.strokeStyle = "#2c3e50";
-  ctx.lineWidth = 6;
-  ctx.strokeRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = "#1e272e";
-  ctx.font = "Bold 24px Arial";
-  ctx.textAlign = "center";
-  ctx.fillText(name, 128, 50);
-
-  ctx.fillStyle = "#7f8c8d";
-  ctx.font = "20px Arial";
-  ctx.fillText(area.toFixed(1) + " м²", 128, 85);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
-  const sprite = new THREE.Sprite(spriteMaterial);
-
-  sprite.position.set(x, 2.2, z);
-  sprite.scale.set(3, 1.5, 1);
-  layoutGroup.add(sprite);
-}
-
-// Создание 3D-двери с полотном и дверной ручкой
-function createDoor(x, y, z, width, height, rotationY) {
-  const doorGroup = new THREE.Group();
-
-  // Полотно двери
-  const doorGeo = new THREE.BoxGeometry(width, height, 0.08);
-  const doorMat = new THREE.MeshStandardMaterial({ color: 0x8e5a2b, roughness: 0.4 });
-  const doorMesh = new THREE.Mesh(doorGeo, doorMat);
-  doorMesh.position.set(0, height / 2, 0);
-
-  // Дверная ручка
-  const handleGeo = new THREE.SphereGeometry(0.05, 8, 8);
-  const handleMat = new THREE.MeshStandardMaterial({ color: 0xdcdde1, metalness: 0.8 });
-  const handleMesh = new THREE.Mesh(handleGeo, handleMat);
-  handleMesh.position.set(width * 0.35, height / 2, 0.06);
-
-  doorGroup.add(doorMesh);
-  doorGroup.add(handleMesh);
-
-  doorGroup.position.set(x, y, z);
-  doorGroup.rotation.y = rotationY;
-
-  layoutGroup.add(doorGroup);
-}
-
-// -------------------------------------------------------------
-// Основная генерация сцены
+// Основная генерация 3D сцены
 // -------------------------------------------------------------
 
 function update3DLayout(layoutData) {
   if (!layoutGroup) return;
 
+  // Очистка старых DragControls и объектов мебели
   if (dragControls) {
     dragControls.dispose();
     dragControls = null;
@@ -145,7 +19,7 @@ function update3DLayout(layoutData) {
   const dim = layoutData.dimensions || { width: 12, length: 14, height: 2.8 };
   const rooms = layoutData.rooms || {};
   const furniture = layoutData.furniture || [];
-  const shape = layoutData.shape || "rectangle";
+  const shape = (layoutData.shape || "rectangle").toLowerCase().strip();
 
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xbdc3c7, roughness: 0.6 });
   const intWallMat = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.6 });
@@ -159,7 +33,7 @@ function update3DLayout(layoutData) {
     const rl = y2 - y1;
     const area = rw * rl;
 
-    // Пол
+    // Отрисовка пола
     const floorGeo = new THREE.PlaneGeometry(rw, rl);
     const floorMat = new THREE.MeshStandardMaterial({
       color: room.floor_type === "wood" ? 0xd2b48c : 0x95a5a6,
@@ -172,13 +46,13 @@ function update3DLayout(layoutData) {
     floorMesh.receiveShadow = true;
     layoutGroup.add(floorMesh);
 
-    // Внутренние стены
+    // Внутренние стены комнат
     createWall(x1 + rw / 2, wallHeight / 2, y1, rw, wallHeight, 0.15, intWallMat);
     createWall(x1 + rw / 2, wallHeight / 2, y2, rw, wallHeight, 0.15, intWallMat);
     createWall(x1, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
     createWall(x2, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
 
-    // Отрисовка дверей для комнаты
+    // Отрисовка 3D-дверей (полотна + ручка)
     if (room.doors && Array.isArray(room.doors)) {
       room.doors.forEach((door) => {
         const dWidth = door.width || 0.8;
@@ -194,34 +68,57 @@ function update3DLayout(layoutData) {
       });
     }
 
-    // Добавление текстовой надписи в центр комнаты
+    // Добавление текстовой таблички с именем и площадью комнаты над полом
     createRoomLabel(rName, area, x1 + rw / 2, y1 + rl / 2);
   });
 
-  // 2. Внешние стены
+  // 2. Внешняя геометрия (поддержка Г-образной, Т-образной, Круглой, Эллиптической и Прямоугольной форм)
   const w = dim.width;
   const l = dim.length;
 
-  if (shape === "circle" || shape === "ellipse") {
+  if (shape === "circle" || shape === "ellipse" || shape === "круг" || shape === "эллипс") {
     const rx = w / 2;
     const ry = l / 2;
     const cylGeo = new THREE.CylinderGeometry(rx, rx, wallHeight, 32, 1, true);
     const cylMesh = new THREE.Mesh(cylGeo, wallMat);
     cylMesh.position.set(rx, wallHeight / 2, ry);
-    if (shape === "ellipse") cylMesh.scale.set(1, 1, ry / rx);
+    if (shape === "ellipse" || shape === "эллипс") cylMesh.scale.set(1, 1, ry / rx);
     layoutGroup.add(cylMesh);
-  } else if (shape === "triangle") {
-    createWall(w / 2, wallHeight / 2, 0, w, wallHeight, 0.38, wallMat);
-    createWall(w / 4, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
-    createWall(3 * w / 4, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
+  } else if (shape === "l_shape" || shape === "г-образный" || shape === "l-образный") {
+    // Отрисовка Г-образного контура стен с вырезом
+    const cutW = w * 0.4;
+    const cutL = l * 0.4;
+
+    // 6 внешних стен Г-образного периметра
+    createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);                                // Север
+    createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);                                // Запад
+    createWall((w - cutW) / 2, wallHeight / 2, l - 0.19, w - cutW, wallHeight, 0.38, wallMat);            // Юг (короткий)
+    createWall(w - cutW, wallHeight / 2, l - cutL / 2, 0.38, wallHeight, cutL, wallMat);                 // Внутренний угол Y
+    createWall(w - cutW / 2, wallHeight / 2, l - cutL, cutW, wallHeight, 0.38, wallMat);                  // Внутренний угол X
+    createWall(w - 0.19, wallHeight / 2, (l - cutL) / 2, 0.38, wallHeight, l - cutL, wallMat);            // Восток (короткий)
+
+  } else if (shape === "t_shape" || shape === "т-образный") {
+    // Отрисовка Т-образного контура
+    const wingW = w * 0.3;
+    const wingL = l * 0.4;
+
+    createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);                                // Север
+    createWall(0.19, wallHeight / 2, wingL / 2, 0.38, wallHeight, wingL, wallMat);                        // Верх Запад
+    createWall(w - 0.19, wallHeight / 2, wingL / 2, 0.38, wallHeight, wingL, wallMat);                    // Верх Восток
+    createWall(wingW / 2, wallHeight / 2, wingL, wingW, wallHeight, 0.38, wallMat);                      // Выступ Запад
+    createWall(w - wingW / 2, wallHeight / 2, wingL, wingW, wallHeight, 0.38, wallMat);                  // Выступ Восток
+    createWall(wingW + 0.19, wallHeight / 2, wingL + (l - wingL) / 2, 0.38, wallHeight, l - wingL, wallMat);// Низ Запад
+    createWall(w - wingW - 0.19, wallHeight / 2, wingL + (l - wingL) / 2, 0.38, wallHeight, l - wingL, wallMat); // Низ Восток
+    createWall(w / 2, wallHeight / 2, l - 0.19, w - wingW * 2, wallHeight, 0.38, wallMat);                // Юг
   } else {
+    // Стандартный прямоугольный дом
     createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
     createWall(w / 2, wallHeight / 2, l - 0.19, w, wallHeight, 0.38, wallMat);
     createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
     createWall(w - 0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
   }
 
-  // 3. Расстановка мебели и привязка DragControls
+  // 3. Расстановка мебели и подсоединение DragControls
   furniture.forEach((item) => {
     const [cx, cy] = item.pos;
     const [fw, fl, fh] = item.size;
@@ -254,13 +151,4 @@ function update3DLayout(layoutData) {
       if (controls && !is2DMode) controls.enabled = true;
     });
   }
-}
-
-function createWall(x, y, z, w, h, d, mat) {
-  const geo = new THREE.BoxGeometry(w, h, d);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y, z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  layoutGroup.add(mesh);
 }
