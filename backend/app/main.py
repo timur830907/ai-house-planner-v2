@@ -1,16 +1,24 @@
 import os
-from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException
+import sys
+from typing import Dict, Any, Optional
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Импорт солвера
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, BASE_DIR)
+sys.path.insert(0, os.path.join(BASE_DIR, "backend"))
+
 try:
     from backend.app.solver_engine import solve_layout
+    from backend.app.pdf_exporter import generate_pdf_report
+    from backend.app.dxf_exporter import generate_dxf_file
 except ImportError:
     from app.solver_engine import solve_layout
+    from app.pdf_exporter import generate_pdf_report
+    from app.dxf_exporter import generate_dxf_file
 
 app = FastAPI(title="AI House Planner API", version="2.0")
 
@@ -22,18 +30,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class RoomRequirement(BaseModel):
-    min_area: float
-    max_area: Optional[float] = None
-    adjacent_to: Optional[List[str]] = []
-
 class LayoutRequest(BaseModel):
     building_width: float
     building_length: float
-    floors: int = 1
-    rooms: Optional[Dict[str, RoomRequirement]] = None
+    floors: Optional[int] = 1
+    rooms: Optional[Dict[str, Any]] = None
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
 js_path = os.path.join(FRONTEND_DIR, "js")
@@ -42,33 +44,20 @@ if os.path.exists(js_path):
 
 @app.post("/api/v1/generate")
 def generate_layout(req: LayoutRequest):
-    try:
-        # Вызываем логику расчета
-        if req.rooms:
-            rooms_dict = {k: v.dict() for k, v in req.rooms.items()}
-        else:
-            rooms_dict = {
-                "Гостиная": {"min_area": 20},
-                "Спальня": {"min_area": 14},
-                "Кухня": {"min_area": 12},
-                "Санузел": {"min_area": 6}
-            }
+    res = solve_layout(req.building_width, req.building_length, req.rooms)
+    return {"status": "success", "layout": res}
 
-        res = solve_layout(req.building_width, req.building_length, rooms_dict)
-        return {"status": "success", "layout": res}
-    except Exception as e:
-        # Резервный расчет планировки при возникновении исключения
-        w, l = req.building_width, req.building_length
-        hw, hl = w / 2, l / 2
-        fallback_layout = {
-            "rooms": {
-                "Гостиная": {"bounds": [0, 0, hw, hl]},
-                "Спальня": {"bounds": [hw, 0, w, hl]},
-                "Кухня": {"bounds": [0, hl, hw, l]},
-                "Санузел": {"bounds": [hw, hl, w, l]}
-            }
-        }
-        return {"status": "success", "layout": fallback_layout}
+@app.post("/api/v1/export/pdf")
+def export_pdf(req: LayoutRequest):
+    res = solve_layout(req.building_width, req.building_length, req.rooms)
+    pdf_bytes = generate_pdf_report(req.building_width, req.building_length, res)
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=layout.pdf"})
+
+@app.post("/api/v1/export/dxf")
+def export_dxf(req: LayoutRequest):
+    res = solve_layout(req.building_width, req.building_length, req.rooms)
+    dxf_bytes = generate_dxf_file(req.building_width, req.building_length, res)
+    return Response(content=dxf_bytes, media_type="application/dxf", headers={"Content-Disposition": "attachment; filename=layout.dxf"})
 
 @app.get("/")
 def read_root():

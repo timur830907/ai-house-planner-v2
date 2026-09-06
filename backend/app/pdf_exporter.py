@@ -1,45 +1,36 @@
-import os
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+import io
+import ezdxf
 
-def register_cyrillic_font():
-    """Регистрация кириллического шрифта."""
-    font_path = "C:\\Windows\\Fonts\\arial.ttf"  # Системный Arial для Windows
-    if os.path.exists(font_path):
-        pdfmetrics.registerFont(TTFont("Arial", font_path))
-        return "Arial"
-    return "Helvetica"
+def generate_dxf_file(width: float, length: float, layout_data: dict) -> bytes:
+    """
+    Генерирует чертеж DXF с контурами стен и названиями комнат.
+    """
+    doc = ezdxf.new('R2010')
+    msp = doc.modelspace()
 
-def export_to_pdf(layout: dict, file_path: str = "house_plan.pdf") -> str:
-    c = canvas.Canvas(file_path, pagesize=letter)
-    font_name = register_cyrillic_font()
+    # Добавляем слои
+    doc.layers.add(name="OUTLINE", color=1)  # Красный
+    doc.layers.add(name="ROOMS", color=3)    # Зеленый
+    doc.layers.add(name="TEXT", color=7)     # Белый/Черный
 
-    # Заголовок
-    c.setFont(font_name, 16)
-    c.drawString(50, 750, "План дома (Чертеж)")
+    # Внешний контур здания
+    msp.add_lwpolyline([(0, 0), (width, 0), (width, length), (0, length)], close=True, dxfattribs={'layer': 'OUTLINE'})
 
-    scale = 30
-    offset_x = 50
-    offset_y = 400
+    # Перегородки и надписи
+    rooms = layout_data.get("rooms", {})
+    for room_name, data in rooms.items():
+        bounds = data.get("bounds") if isinstance(data, dict) else data
+        x1, y1, x2, y2 = bounds
+        
+        # Контур комнаты
+        points = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+        msp.add_lwpolyline(points, close=True, dxfattribs={'layer': 'ROOMS'})
+        
+        # Название в центре комнаты
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+        msp.add_text(room_name, dxfattribs={'layer': 'TEXT', 'height': 0.3}).set_placement((cx, cy), align=ezdxf.enums.TextEntityAlignment.CENTER)
 
-    for room_name, room_info in layout.items():
-        x1, y1, x2, y2 = room_info["bounds"]
-
-        # Перевод координат
-        px1 = offset_x + x1 * scale
-        py1 = offset_y + y1 * scale
-        pw = room_info["width"] * scale
-        ph = room_info["height"] * scale
-
-        # Рисуем контур комнаты
-        c.setLineWidth(1)
-        c.rect(px1, py1, pw, ph)
-
-        # Отрисовка текста (Наименование + Площадь)
-        c.setFont(font_name, 9)
-        c.drawString(px1 + 5, py1 + ph / 2, f"{room_name} ({room_info['area']} м²)")
-
-    c.save()
-    return file_path
+    out_stream = io.StringIO()
+    doc.write(out_stream)
+    return out_stream.getvalue().encode('utf-8')

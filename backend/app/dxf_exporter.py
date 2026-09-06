@@ -1,30 +1,52 @@
-import ezdxf
+import io
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-def export_to_dxf(layout: dict, file_path: str = "generated_house_plan.dxf"):
-    doc = ezdxf.new(dxfversion="R2010")
-    msp = doc.modelspace()
+def generate_pdf_report(width: float, length: float, layout_data: dict) -> bytes:
+    """
+    Генерирует PDF-документ с параметрами планировки и таблицей помещений.
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    story = []
 
-    # Создаем слои
-    doc.layers.add(name="WALLS", color=7)
-    doc.layers.add(name="ROOM_LABELS", color=3)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=12
+    )
 
-    for room_name, room_info in layout.items():
-        x1, y1, x2, y2 = room_info["bounds"]
-        
-        # Отрисовка контура комнаты (контур стен)
-        points = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-        msp.add_lwpolyline(points, close=True, dxfattribs={"layer": "WALLS"})
+    story.append(Paragraph("Отчет планировки: AI House Planner v2.0", title_style))
+    story.append(Paragraph(f"Общие габариты здания: {width} м x {length} м (Площадь: {width * length:.2f} кв. м)", styles['Normal']))
+    story.append(Spacer(1, 15))
 
-        # Вычисление центра комнаты для подписи
-        center_x = (x1 + x2) / 2
-        center_y = (y1 + y2) / 2
-        
-        # Подпись названия комнаты и площади
-        text_content = f"{room_name} ({room_info['area']}m2)"
-        msp.add_text(
-            text_content,
-            dxfattribs={"layer": "ROOM_LABELS", "height": 0.35}
-        ).set_placement((center_x, center_y), align=ezdxf.enums.TextEntityAlignment.CENTER)
+    table_data = [["Помещение", "Координаты (x1, y1, x2, y2)", "Площадь (кв. м)"]]
+    rooms = layout_data.get("rooms", {})
 
-    doc.saveas(file_path)
-    return file_path
+    for room_name, data in rooms.items():
+        bounds = data.get("bounds") if isinstance(data, dict) else data
+        x1, y1, x2, y2 = bounds
+        area = (x2 - x1) * (y2 - y1)
+        bounds_str = f"[{x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}]"
+        table_data.append([room_name, bounds_str, f"{area:.2f}"])
+
+    t = Table(table_data, colWidths=[150, 220, 120])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2C3E50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F2F4F4')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
+
+    story.append(t)
+    doc.build(story)
+    
+    buffer.seek(0)
+    return buffer.getvalue()
