@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI House Planner — Мультивариантный генератор</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-color: #1e293b;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --radius: 12px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-color); padding: 24px; }
+
+        header { max-width: 1400px; margin: 0 auto 24px auto; display: flex; align-items: center; justify-content: space-between; }
+        h1 { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .badge { background: #dbeafe; color: #1e40af; font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
+
+        .main-container { display: grid; grid-template-columns: 380px 1fr; gap: 24px; max-width: 1400px; margin: 0 auto; }
+        .card { background: var(--card-bg); border-radius: var(--radius); padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid var(--border-color); }
+
+        .section-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #0f172a; display: flex; justify-content: space-between; align-items: center; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; }
+
+        .range-container { display: flex; align-items: center; gap: 12px; }
+        input[type="range"] { flex-grow: 1; accent-color: var(--primary-color); }
+        .area-value { font-weight: 700; font-size: 16px; color: var(--primary-color); min-width: 65px; text-align: right; }
+
+        .rooms-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; }
+        .checkbox-label input { accent-color: var(--primary-color); }
+
+        .btn-main { width: 100%; padding: 14px; font-size: 15px; font-weight: 600; background-color: var(--primary-color); color: #fff; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2); }
+        .btn-main:hover { background-color: var(--primary-hover); }
+
+        .export-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+        .btn-export { padding: 10px; font-size: 13px; font-weight: 600; background-color: #f1f5f9; color: #334155; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; }
+        .btn-export:hover { background-color: #e2e8f0; color: #0f172a; }
+
+        .variants-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+        .variant-tab { padding: 6px 14px; font-size: 12px; font-weight: 600; border: 1px solid var(--border-color); background: #f8fafc; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+        .variant-tab.active { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+
+        canvas { width: 100%; height: 520px; background-color: #fafafa; border: 1px solid var(--border-color); border-radius: 8px; }
+        .status-message { font-size: 13px; margin-top: 12px; text-align: center; min-height: 20px; }
+        .total-calculated { font-size: 13px; font-weight: 600; color: var(--primary-color); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🏛️ AI House Planner <span class="badge">PRO v2.0</span></h1>
+    </header>
+
+    <div class="main-container">
+        <div class="card">
+            <div class="section-title">⚙️ Параметры дома</div>
+
+            <div class="form-group">
+                <label>Общая площадь (м²)</label>
+                <div class="range-container">
+                    <input type="range" id="areaRange" min="40" max="250" value="65" step="5" oninput="updateAreaValue(this.value)">
+                    <span class="area-value" id="areaDisplay">65 м²</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Помещения в проекте:</label>
+                <div class="rooms-grid">
+                    <label class="checkbox-label"><input type="checkbox" id="room_living" checked disabled> Гостиная</label>
+                    <label class="checkbox-label"><input type="checkbox" id="room_kitchen" checked disabled> Кухня</label>
+                    <label class="checkbox-label"><input type="checkbox" id="room_hallway" checked disabled> Прихожая</label>
+                    <label class="checkbox-label"><input type="checkbox" id="room_bath" checked disabled> Ванная</label>
+                    <label class="checkbox-label"><input type="checkbox" id="room_bed1" checked> Спальня 1</label>
+                    <label class="checkbox-label"><input type="checkbox" id="room_bed2" checked> Спальня 2</label>
+                    <label class="checkbox-label"><input type="checkbox" id="room_office"> Кабинет</label>
+                    <label class="checkbox-label"><input type="checkbox" id="room_wardrobe"> Гардероб</label>
+                </div>
+            </div>
+
+            <button class="btn-main" onclick="generatePlan()">✨ Сгенерировать 10 вариантов</button>
+
+            <div style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                <div class="section-title">💾 Экспорт выбранного варианта</div>
+                <div class="export-group">
+                    <button class="btn-export" onclick="downloadFile('pdf')">📄 Чертеж (PDF)</button>
+                    <button class="btn-export" onclick="downloadFile('dxf')">📐 CAD (DXF)</button>
+                </div>
+            </div>
+
+            <div class="status-message" id="statusMessage"></div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">
+                <span>🗺️ Выбор планировки (10 вариантов)</span>
+                <span class="total-calculated" id="calcAreaDisplay"></span>
+            </div>
+            <div class="variants-bar" id="variantsBar"></div>
+            <canvas id="planCanvas" width="800" height="520"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "http://127.0.0.1:8080/api/v1";
+        let generatedVariants = [];
+        let selectedVariantIndex = 0;
+
+        function updateAreaValue(val) {
+            document.getElementById('areaDisplay').innerText = `${val} м²`;
+        }
+
+        function showStatus(msg, isError = true) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.style.color = isError ? '#ef4444' : '#10b981';
+            statusEl.innerText = msg;
+        }
+
+        function buildJSONFromUI() {
+            const totalArea = parseFloat(document.getElementById('areaRange').value);
+            
+            // Базовые относительные веса комнат
+            const rooms = [
+                { name: "Гостиная", min_area: 20, preferred_adjacent: ["Кухня", "Прихожая"] },
+                { name: "Кухня", min_area: 12, preferred_adjacent: ["Гостиная"] },
+                { name: "Прихожая", min_area: 8, preferred_adjacent: ["Гостиная", "Ванная"] },
+                { name: "Ванная", min_area: 6, preferred_adjacent: ["Прихожая"] }
+            ];
+
+            if (document.getElementById('room_bed1').checked) {
+                rooms.push({ name: "Спальня 1", min_area: 14, preferred_adjacent: ["Прихожая"] });
+            }
+            if (document.getElementById('room_bed2').checked) {
+                rooms.push({ name: "Спальня 2", min_area: 12, preferred_adjacent: ["Прихожая"] });
+            }
+            if (document.getElementById('room_office').checked) {
+                rooms.push({ name: "Кабинет", min_area: 10, preferred_adjacent: ["Прихожая"] });
+            }
+            if (document.getElementById('room_wardrobe').checked) {
+                rooms.push({ name: "Гардероб", min_area: 5, preferred_adjacent: ["Спальня 1"] });
+            }
+
+            return { total_area: totalArea, floors: 1, rooms: rooms };
+        }
+
+        async function generatePlan() {
+            showStatus("");
+            const bodyData = buildJSONFromUI();
+
+            try {
+                const res = await fetch(`${API_BASE}/generate-plan`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bodyData)
+                });
+
+                if (!res.ok) throw new Error("Ошибка генерации вариантов");
+
+                const data = await res.json();
+                
+                if (data.variants && Array.isArray(data.variants)) {
+                    generatedVariants = data.variants;
+                } else if (typeof data === 'object') {
+                    generatedVariants = [{ variant_id: 1, layout: data }];
+                } else {
+                    throw new Error("Некорректный формат ответа сервера");
+                }
+
+                renderVariantTabs();
+                selectVariant(0);
+                showStatus(`Сгенерировано ${generatedVariants.length} вариантов!`, false);
+            } catch (err) {
+                showStatus(`Ошибка: ${err.message}`);
+            }
+        }
+
+        function renderVariantTabs() {
+            const bar = document.getElementById('variantsBar');
+            bar.innerHTML = "";
+            generatedVariants.forEach((v, idx) => {
+                const btn = document.createElement('button');
+                btn.className = `variant-tab ${idx === selectedVariantIndex ? 'active' : ''}`;
+                btn.innerText = `Вариант ${v.variant_id || idx + 1}`;
+                btn.onclick = () => selectVariant(idx);
+                bar.appendChild(btn);
+            });
+        }
+
+        function selectVariant(index) {
+            selectedVariantIndex = index;
+            renderVariantTabs();
+            if (generatedVariants[index] && generatedVariants[index].layout) {
+                drawLayout(generatedVariants[index].layout);
+            }
+        }
+
+        function drawLayout(layout) {
+            const canvas = document.getElementById('planCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let calculatedTotalArea = 0;
+            
+            // Динамический масштаб для полного отображения на canvas
+            let maxX = 0, maxY = 0;
+            for (const room of Object.values(layout)) {
+                if (room.bounds[2] > maxX) maxX = room.bounds[2];
+                if (room.bounds[3] > maxY) maxY = room.bounds[3];
+                calculatedTotalArea += room.area;
+            }
+
+            document.getElementById('calcAreaDisplay').innerText = `Сумма комнат: ${calculatedTotalArea.toFixed(1)} м²`;
+
+            const margin = 40;
+            const scaleX = (canvas.width - margin * 2) / (maxX || 1);
+            const scaleY = (canvas.height - margin * 2) / (maxY || 1);
+            const scale = Math.min(scaleX, scaleY, 45); // ограничение максимального масштаба
+
+            const offsetX = margin;
+            const offsetY = margin;
+
+            for (const [name, room] of Object.entries(layout)) {
+                const [x1, y1, x2, y2] = room.bounds;
+                const px = offsetX + x1 * scale;
+                const py = offsetY + y1 * scale;
+                const pw = (x2 - x1) * scale;
+                const ph = (y2 - y1) * scale;
+
+                ctx.fillStyle = "#f0f9ff";
+                ctx.fillRect(px, py, pw, ph);
+
+                ctx.strokeStyle = "#0284c7";
+                ctx.lineWidth = 3;
+                ctx.strokeRect(px, py, pw, ph);
+
+                if (room.doors) {
+                    ctx.fillStyle = "#ef4444";
+                    room.doors.forEach(door => {
+                        const dx = offsetX + door.center[0] * scale;
+                        const dy = offsetY + door.center[1] * scale;
+                        ctx.beginPath();
+                        ctx.arc(dx, dy, 4, 0, 2 * Math.PI);
+                        ctx.fill();
+                    });
+                }
+
+                ctx.fillStyle = "#0f172a";
+                ctx.font = "bold 13px sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(name, px + pw / 2, py + ph / 2 - 8);
+
+                ctx.font = "11px sans-serif";
+                ctx.fillStyle = "#64748b";
+                ctx.fillText(`${room.area} м²`, px + pw / 2, py + ph / 2 + 10);
+            }
+        }
+
+        async function downloadFile(type) {
+            showStatus("");
+            if (!generatedVariants[selectedVariantIndex]) {
+                showStatus("Сначала сгенерируйте варианты");
+                return;
+            }
+
+            const activeLayout = generatedVariants[selectedVariantIndex].layout;
+
+            try {
+                const res = await fetch(`${API_BASE}/export-${type}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ layout: activeLayout })
+                });
+
+                if (!res.ok) throw new Error(`Ошибка экспорта в ${type.toUpperCase()}`);
+
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `house_plan_variant_${selectedVariantIndex + 1}.${type}`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                showStatus(`Вариант ${selectedVariantIndex + 1} сохранен в ${type.toUpperCase()}!`, false);
+            } catch (err) {
+                showStatus(err.message);
+            }
+        }
+
+        window.onload = generatePlan;
+    </script>
+</body>
+</html>
