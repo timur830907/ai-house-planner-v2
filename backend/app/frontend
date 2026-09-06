@@ -1,0 +1,101 @@
+const API_URL = "https://ai-house-planner-v2.onrender.com";
+
+let currentPlans = [];
+
+// 1. Генерация вариантов планировок
+async function generatePlans() {
+  const areaInput = document.getElementById("areaInput") || { value: 100 };
+  const area = parseFloat(areaInput.value) || 100;
+  
+  // Собираем отмеченные комнаты
+  const roomCheckboxes = document.querySelectorAll('input[name="rooms"]:checked');
+  let rooms = Array.from(roomCheckboxes).map(cb => cb.value);
+  
+  if (rooms.length === 0) {
+    rooms = ["Прихожая", "Гостиная", "Кухня", "Ванная", "Спальня 1"];
+  }
+
+  const statusElement = document.getElementById("statusMessage");
+  if (statusElement) statusElement.innerText = "Генерация вариантов...";
+
+  try {
+    const response = await fetch(`${API_URL}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ area, rooms })
+    });
+
+    if (!response.ok) throw new Error("Ошибка при генерации");
+
+    const data = await response.json();
+    currentPlans = data.plans || [];
+
+    if (statusElement) statusElement.innerText = `Успешно! Сгенерировано вариантов: ${currentPlans.length}`;
+    
+    // Отрисовываем результаты на экране
+    renderPlansUI(currentPlans);
+  } catch (error) {
+    console.error(error);
+    if (statusElement) statusElement.innerText = "Ошибка генерации. Проверьте консоль.";
+  }
+}
+
+// 2. Отображение карточек с кнопками скачивания
+function renderPlansUI(plans) {
+  const container = document.getElementById("plansContainer");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  plans.forEach((plan, index) => {
+    const card = document.createElement("div");
+    card.className = "plan-card";
+    card.style.border = "1px solid #ccc";
+    card.style.padding = "15px";
+    card.style.margin = "10px 0";
+    card.style.borderRadius = "8px";
+
+    card.innerHTML = `
+      <h3>Вариант №${index + 1}</h3>
+      <p>Количество помещений: ${Object.keys(plan.layout || {}).length}</p>
+      <button onclick="downloadExport(${index}, 'pdf')">📄 Скачать PDF</button>
+      <button onclick="downloadExport(${index}, 'dxf')">📐 Скачать DXF</button>
+    `;
+    container.appendChild(card);
+  });
+}
+
+// 3. Автоматический экспорт и скачивание файла без копирования JSON
+async function downloadExport(planIndex, format) {
+  if (!currentPlans[planIndex]) {
+    alert("Ошибка: вариант не найден");
+    return;
+  }
+
+  const planData = currentPlans[planIndex];
+  const endpoint = format === "pdf" ? "/export/pdf" : "/export/dxf";
+
+  try {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(planData)
+    });
+
+    if (!response.ok) throw new Error(`Ошибка экспорта в ${format.toUpperCase()}`);
+
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = `house_plan_variant_${planIndex + 1}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+  } catch (error) {
+    console.error(error);
+    alert(`Не удалось скачать ${format.toUpperCase()}`);
+  }
+}
