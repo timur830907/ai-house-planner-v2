@@ -76,7 +76,7 @@ function update3DLayout(layoutData) {
   const intWallMat = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.6 });
   const wallHeight = dim.height || 2.8;
 
-  // 1. Полы и межкомнатные перегородки
+  // 1. Полы и перегородки
   Object.keys(rooms).forEach((rName) => {
     const room = rooms[rName];
     const [x1, y1, x2, y2] = room.bounds;
@@ -95,28 +95,33 @@ function update3DLayout(layoutData) {
     floorMesh.receiveShadow = true;
     layoutGroup.add(floorMesh);
 
-    // Внутренние стены
     createWall(x1 + rw / 2, wallHeight / 2, y1, rw, wallHeight, 0.15, intWallMat);
     createWall(x1 + rw / 2, wallHeight / 2, y2, rw, wallHeight, 0.15, intWallMat);
     createWall(x1, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
     createWall(x2, wallHeight / 2, y1 + rl / 2, 0.15, wallHeight, rl, intWallMat);
   });
 
-  // 2. Внешняя геометрия (Круг / Эллипс / Прямоугольник)
+  // 2. Внешняя геометрия (Эллипс, Ромб, Треугольник, Трапеция)
+  const w = dim.width;
+  const l = dim.length;
+
   if (shape === "circle" || shape === "ellipse") {
-    const rx = dim.width / 2;
-    const ry = dim.length / 2;
+    const rx = w / 2;
+    const ry = l / 2;
     const cylGeo = new THREE.CylinderGeometry(rx, rx, wallHeight, 32, 1, true);
     const cylMesh = new THREE.Mesh(cylGeo, wallMat);
     cylMesh.position.set(rx, wallHeight / 2, ry);
     if (shape === "ellipse") cylMesh.scale.set(1, 1, ry / rx);
     layoutGroup.add(cylMesh);
+  } else if (shape === "triangle") {
+    createWall(w / 2, wallHeight / 2, 0, w, wallHeight, 0.38, wallMat);
+    createWall(w / 4, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
+    createWall(3 * w / 4, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
   } else {
-    // Внешние стены прямоугольного типа
-    createWall(dim.width / 2, wallHeight / 2, 0.19, dim.width, wallHeight, 0.38, wallMat);
-    createWall(dim.width / 2, wallHeight / 2, dim.length - 0.19, dim.width, wallHeight, 0.38, wallMat);
-    createWall(0.19, wallHeight / 2, dim.length / 2, 0.38, wallHeight, dim.length, wallMat);
-    createWall(dim.width - 0.19, wallHeight / 2, dim.length / 2, 0.38, wallHeight, dim.length, wallMat);
+    createWall(w / 2, wallHeight / 2, 0.19, w, wallHeight, 0.38, wallMat);
+    createWall(w / 2, wallHeight / 2, l - 0.19, w, wallHeight, 0.38, wallMat);
+    createWall(0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
+    createWall(w - 0.19, wallHeight / 2, l / 2, 0.38, wallHeight, l, wallMat);
   }
 
   // 3. Мебель

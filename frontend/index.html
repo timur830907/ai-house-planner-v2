@@ -50,12 +50,12 @@
             </select>
         </div>
         <div class="form-group">
-            <label>Вариант планировки (из 20)</label>
+            <label>Вариант планировки (из 30)</label>
             <select id="variantSelect" onchange="applySelectedVariant()">
                 <option value="0">Вариант 1</option>
             </select>
         </div>
-        <button class="btn btn-primary" onclick="handleGenerate()">Сгенерировать 20 вариантов</button>
+        <button class="btn btn-primary" onclick="handleGenerate()">Сгенерировать 30 вариантов</button>
         <hr style="border-color: #57606f;">
         <div class="btn-group">
             <button class="btn btn-secondary" onclick="exportPDF()">PDF Отчет</button>
@@ -91,28 +91,32 @@
             const select = document.getElementById("variantSelect");
             select.innerHTML = "";
 
-            // Генерация 20 вариаций
-            for (let i = 0; i < 20; i++) {
-                try {
-                    const res = await fetch("/api/v1/generate", {
+            // Параллельный запрос на 30 вариантов для высокой скорости
+            const promises = [];
+            for (let i = 0; i < 30; i++) {
+                promises.push(
+                    fetch("/api/v1/generate", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ 
-                            building_width: width, 
-                            building_length: length, 
-                            rooms: { shape_type: shape, seed: i } 
+                        body: JSON.stringify({
+                            building_width: width,
+                            building_length: length,
+                            rooms: { shape_type: shape, seed: i }
                         })
-                    });
-                    const data = await res.json();
-                    if (data.status === "success") {
-                        generatedVariants.push(data.layout);
-                        const opt = document.createElement("option");
-                        opt.value = i;
-                        opt.textContent = `Вариант ${i + 1}`;
-                        select.appendChild(opt);
-                    }
-                } catch (e) { console.error(e); }
+                    }).then(r => r.json())
+                );
             }
+
+            const results = await Promise.all(promises);
+            results.forEach((data, i) => {
+                if (data.status === "success") {
+                    generatedVariants.push(data.layout);
+                    const opt = document.createElement("option");
+                    opt.value = i;
+                    opt.textContent = `Вариант ${i + 1}`;
+                    select.appendChild(opt);
+                }
+            });
 
             if (generatedVariants.length > 0) update3DLayout(generatedVariants[0]);
         }
@@ -138,19 +142,15 @@
                     })
                 });
 
-                if (!response.ok) throw new Error("Ошибка сборки PDF");
-
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `BIM_House_Plan_${width}x${length}.pdf`;
+                a.download = `House_Plan_${width}x${length}.pdf`;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
-                window.URL.revokeObjectURL(url);
             } catch (err) {
-                alert("Ошибка генерации PDF. Проверьте логи на сервере.");
                 console.error(err);
             }
         }
